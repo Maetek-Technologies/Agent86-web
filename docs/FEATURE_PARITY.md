@@ -14,14 +14,16 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 
 | Terminal feature | ACP | Web UI | Status | Milestone |
 |---|---|---|---|---|
-| Streaming reply rendered as Markdown | `session/update` `agent_message_chunk` | Incremental Markdown with highlighted code | ✅ | M2 |
+| Streaming reply rendered as Markdown | `session/update` `agent_message_chunk` | Incremental Markdown (only the last block re-parsed) with copyable code blocks | 🟡 Code is not highlighted yet; that comes in M3 with the diff viewer | M2 |
 | Thinking model's reasoning, dimmed | `agent_thought_chunk` | A collapsible "thinking" block, collapsed by default once the answer starts | ✅ | M2 |
 | `/thinking full\|summary\|hidden`, Ctrl+T | slash command over ACP | Slash command, plus a local display toggle | ✅ | M4 |
 | Tool call blocks `⏺ name(args)` / `⎿ result` | `tool_call`, `tool_call_update` | Cards with status, arguments, and an expandable result | ✅ | M3 |
 | `/toolview full\|summary\|hidden` | slash command over ACP | Slash command, plus a local display toggle | ✅ | M4 |
 | Ctrl+O full transcript with every call expanded | — (the client has all the data) | "Expand all" toggle | ✅ | M3 |
 | Esc / Ctrl+C cancels at the next safe point | `session/cancel` → `stopReason: cancelled` | Esc key and a Stop button | ✅ | M2 |
-| Turn summary line, errors, trace hint | prompt result plus message text | Shown at the end of the turn | 🟡 Usage figures are not sent over ACP | M2 |
+| Turn summary line, errors, trace hint | prompt result plus message text | Errors with `agent86 trace show -s <id>`, and a divider showing the turn's duration | 🟡 Usage figures are not sent over ACP | M2 |
+| `[cancelled]` after a cancelled reply | `agent_message_chunk` text, then `stopReason: cancelled` | A "Cancelled." notice; agent86's trailing marker is dropped so the cancel shows once | ✅ | M2 |
+| No key for the model | `session/new` error | agent86's message, plus help: `agent86 keys set <provider>` or `/config model` at a terminal | ✅ | M2 |
 | `@file` mentions with path completion | prompt `resource_link` blocks | `@` menu backed by `/api/workspaces` (directory and file names only), sent as file links | 🟡 agent86 ACP has no `@` menu of its own; the bridge lists names, and agent86 reads the file | M4 |
 | Prompt history (Up arrow) | — | Per-workspace history in `localStorage` | 🟡 Not shared with the terminal's history file | M4 |
 | Multi-line input | — | Shift+Enter | ✅ | M2 |

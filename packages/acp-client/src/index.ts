@@ -2,11 +2,16 @@ export { webSocketStream, InvalidFrameError, type WebSocketLike } from "./websoc
 export {
   checkCompatibility,
   compareVersions,
-  connectAndInitialize,
   CLIENT_CAPABILITIES,
   CLIENT_INFO,
   MIN_AGENT86_VERSION,
   type Compatibility,
-  type Handshake,
 } from "./handshake.ts";
-export type { InitializeResponse } from "@agentclientprotocol/sdk";
+export {
+  Agent86Client,
+  AgentSession,
+  type Agent86ClientOptions,
+  type Clock,
+} from "./agent86-client.ts";
+export * from "./session-state.ts";
+export type { InitializeResponse, StopReason, SessionUpdate } from "@agentclientprotocol/sdk";

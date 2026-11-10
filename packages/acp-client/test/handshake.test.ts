@@ -6,10 +6,10 @@ import {
 } from "@agentclientprotocol/sdk";
 import { describe, expect, it } from "vitest";
 import {
+  Agent86Client,
   CLIENT_CAPABILITIES,
   checkCompatibility,
   compareVersions,
-  connectAndInitialize,
 } from "../src/index.ts";
 import { streamPair } from "./pair.ts";
 
@@ -79,7 +79,7 @@ describe("checkCompatibility", () => {
   });
 });
 
-describe("connectAndInitialize", () => {
+describe("Agent86Client.connect", () => {
   it("sends agent86-web's identity and capabilities, and returns the answer", async () => {
     const { client, agent: agentEnd } = streamPair();
     let received: InitializeRequest | undefined;
@@ -90,7 +90,7 @@ describe("connectAndInitialize", () => {
       })
       .connect(agentEnd);
 
-    const handshake = await connectAndInitialize(client);
+    const handshake = await Agent86Client.connect(client);
 
     expect(received?.protocolVersion).toBe(1);
     expect(received?.clientCapabilities).toMatchObject(CLIENT_CAPABILITIES);
@@ -98,7 +98,7 @@ describe("connectAndInitialize", () => {
     expect(handshake.init.agentInfo?.version).toBe("1.0.15");
     expect(handshake.compatibility.ok).toBe(true);
 
-    handshake.connection.close();
+    handshake.close();
     agentConnection.close();
   });
 
@@ -110,7 +110,7 @@ describe("connectAndInitialize", () => {
       })
       .connect(agentEnd);
 
-    await expect(connectAndInitialize(client)).rejects.toThrow();
+    await expect(Agent86Client.connect(client)).rejects.toThrow();
     agentConnection.close();
   });
 });

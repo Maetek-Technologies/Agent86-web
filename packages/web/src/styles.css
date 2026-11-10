@@ -56,3 +56,63 @@ body {
     transition: none !important;
   }
 }
+
+/* Markdown from the model (src/markdown/Markdown.tsx). */
+.md {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.md > * + * {
+  margin-top: 0.75rem;
+}
+.md p + p {
+  margin-top: 0.75rem;
+}
+.md h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-top: 1rem;
+}
+.md h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-top: 1rem;
+}
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  font-weight: 600;
+  margin-top: 0.75rem;
+}
+.md ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+}
+.md ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+}
+.md li + li {
+  margin-top: 0.25rem;
+}
+.md blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 0.75rem;
+  color: var(--muted);
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.6rem;
+  text-align: left;
+}
+.md th {
+  background: var(--panel-2);
+}
+.md hr {
+  border-color: var(--border);
+}
+.md input[type="checkbox"] {
+  margin-right: 0.4rem;
+}

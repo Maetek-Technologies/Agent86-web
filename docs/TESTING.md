@@ -16,7 +16,14 @@ The aim is to test the protocol, the bridge's security, and the UI without needi
 
 ## 2. Mock agent
 
-`packages/mock-agent` is a small Node program that speaks ACP on stdio like `agent86 acp`. It is driven by scenario files:
+`packages/mock-agent` holds two test doubles:
+
+- **`mock-agent86.js`** speaks ACP on stdio like `agent86 acp`, and answers `--version` like agent86. It records what it receives when `MOCK_AGENT86_RECORD=<file>` is set.
+- **`mock-openai.js`** is an OpenAI-compatible chat completions server that streams scripted replies, with reasoning in `reasoning_content`. A real agent86 is pointed at it, so a full turn runs with no key or network.
+
+As built in M2, both pick a script from keywords in the prompt, and they share the scripts, so a test reads the same against either: `fail` gives an HTTP 400 model error, `slow` gives a long reply for cancel tests, `markdown` gives a reply exercising GFM and the XSS cases, and anything else gives a short reasoning trace and `Hello from the mock model. You said: <text>`. The mock agent also answers `/cost` without a model, as agent86 does.
+
+Tool calls and approvals (M3) need richer scripts. The plan is scenario files:
 
 ```yaml
 # scenarios/edit-with-approval.yaml
@@ -38,9 +45,10 @@ The bridge accepts `--agent86 <path-to-mock>`, so the same code path is tested. 
 
 ## 3. Real agent86 smoke tests
 
-- Install a pinned agent86 version in CI (`npm install -g agent86@<pinned>`).
-- Point it at a local OpenAI-compatible mock server that replays canned completions, so no key or network is needed. Configure it with a `[providers.mock] base_url` block and `--trust-project` in a temporary workspace.
-- Flows: start a thread, stream a reply, perform a tool call with an approval, cancel, list sessions, load a session.
+- Install a pinned agent86 version in CI (`npm install -g agent86@<pinned>`), and set `AGENT86_BIN=agent86` for the Playwright run.
+- Point it at `mock-openai.js`, so no key or network is needed. As built in M2, `e2e/bridge.ts` (`scriptedModel()`) starts the server and writes a temporary home directory (`HOME` and `USERPROFILE`) whose `~/.agent86/config.toml` sets `[model] default = "mock:test-model"`, a `[providers.mock] base_url`, and the hash embedder. The user file needs no project trust.
+- The chat flows in `e2e/chat.spec.ts` run once against the mock agent and once against the real agent86.
+- Flows: start a thread, stream a reply, cancel, see a model error, run a slash command (M2). Later: a tool call with an approval, list sessions, load a session.
 - A nightly job runs the same flows against the latest agent86 release, to catch ACP changes early.
 
 ## 4. Flows covered end to end

@@ -21,5 +21,8 @@ export default defineConfig({
     sourcemap: true,
     // The bridge serves a strict CSP (no inline scripts), so keep everything in files.
     assetsInlineLimit: 0,
+    // The app is served from localhost, so its size barely affects load time. Most of it is the
+    // ACP SDK (with zod) and the Markdown parser; see docs/OPEN_QUESTIONS.md Q6.
+    chunkSizeWarningLimit: 700,
   },
 });

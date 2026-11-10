@@ -1,17 +1,28 @@
 // Starts the built bridge (packages/bridge/dist) for an end-to-end test.
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CLI = fileURLToPath(new URL("../../bridge/dist/cli.js", import.meta.url));
 const MOCK = fileURLToPath(new URL("../../mock-agent/src/mock-agent86.js", import.meta.url));
+const MOCK_OPENAI = new URL("../../mock-agent/src/mock-openai.js", import.meta.url).href;
 
 export interface Bridge {
   url: string;
   origin: string;
   workspace: string;
+  /** What the mock agent received, if MOCK_AGENT86_RECORD was set. */
+  recorded: () => { method: string; params: Record<string, unknown> }[];
   stderr: () => string;
   stop: () => Promise<void>;
 }
@@ -66,6 +77,19 @@ export async function startBridge(
     url,
     origin: new URL(url).origin,
     workspace,
+    recorded: () => {
+      const file = env.MOCK_AGENT86_RECORD;
+      if (!file) return [];
+      try {
+        return readFileSync(file, "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
+      } catch {
+        return [];
+      }
+    },
     stderr: () => stderr,
     stop: () =>
       new Promise((resolve) => {
@@ -73,5 +97,46 @@ export async function startBridge(
         child.once("exit", () => resolve());
         child.kill("SIGTERM");
       }),
+  };
+}
+
+/** A file for the mock agent to record what it receives. */
+export function recordFile(): string {
+  return join(mkdtempSync(join(tmpdir(), "agent86-web-e2e-rec-")), "record.jsonl");
+}
+
+/**
+ * For the real agent86: a scripted OpenAI-compatible server (packages/mock-agent/src/mock-openai.js)
+ * and a home directory whose agent86 config points at it, so a turn needs no key or network.
+ */
+export async function scriptedModel(
+  options: { config?: string } = {},
+): Promise<{ env: Record<string, string>; stop: () => Promise<void> }> {
+  const { createMockOpenAI } = (await import(MOCK_OPENAI)) as {
+    createMockOpenAI: () => import("node:http").Server;
+  };
+  const server = createMockOpenAI();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "agent86-web-e2e-home-")));
+  mkdirSync(join(home, ".agent86"));
+  writeFileSync(
+    join(home, ".agent86", "config.toml"),
+    options.config ??
+      [
+        "[model]",
+        'default = "mock:test-model"',
+        "",
+        "[providers.mock]",
+        `base_url = "http://127.0.0.1:${port}/v1"`,
+        "",
+        "[memory]",
+        'embeddings = "hash:384"',
+        "",
+      ].join("\n"),
+  );
+  return {
+    env: { HOME: home, USERPROFILE: home },
+    stop: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }

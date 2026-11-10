@@ -1,12 +1,8 @@
 import {
-  client,
-  methods,
   PROTOCOL_VERSION,
   type ClientCapabilities,
-  type ClientConnection,
   type Implementation,
   type InitializeResponse,
-  type Stream,
 } from "@agentclientprotocol/sdk";
 
 /** The oldest agent86 whose ACP server agent86-web is built against. */
@@ -68,35 +64,4 @@ export function checkCompatibility(init: InitializeResponse): Compatibility {
     problems.push("The agent cannot reopen saved sessions (loadSession).");
   }
   return { ok: problems.length === 0, problems };
-}
-
-export interface Handshake {
-  connection: ClientConnection;
-  init: InitializeResponse;
-  compatibility: Compatibility;
-}
-
-/**
- * Opens an ACP connection over `stream` and performs `initialize`.
- *
- * Until the permission UI lands (milestone M3), any permission request is answered `cancelled`,
- * which agent86 treats as a decline.
- */
-export async function connectAndInitialize(stream: Stream): Promise<Handshake> {
-  const app = client({ name: CLIENT_INFO.name }).onRequest(
-    methods.client.session.requestPermission,
-    () => ({ outcome: { outcome: "cancelled" } }),
-  );
-  const connection = app.connect(stream);
-  try {
-    const init = await connection.agent.request(methods.agent.initialize, {
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: CLIENT_CAPABILITIES,
-      clientInfo: CLIENT_INFO,
-    });
-    return { connection, init, compatibility: checkCompatibility(init) };
-  } catch (error) {
-    connection.close(error);
-    throw error;
-  }
 }

@@ -10,7 +10,8 @@
 //   MOCK_AGENT86_RECORD    a file to append every received message to, one JSON per line
 import { appendFileSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
-import { agent, methods, ndJsonStream } from "@agentclientprotocol/sdk";
+import { agent, methods, ndJsonStream, RequestError } from "@agentclientprotocol/sdk";
+import { script } from "./mock-openai.js";
 
 const version = process.env.MOCK_AGENT86_VERSION ?? "1.0.15";
 const name = process.env.MOCK_AGENT86_NAME ?? "agent86";
@@ -37,6 +38,10 @@ function remember(method, params) {
 process.stderr.write(`mock-agent86 ${version}: started in ${process.cwd()}\n`);
 
 let nextSession = 1;
+/** Sessions whose running turn was asked to stop. */
+const cancelled = new Set();
+/** @param {number} ms */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const app = agent({ name: "mock-agent86" })
   .onRequest(methods.agent.initialize, ({ params }) => {
@@ -56,6 +61,50 @@ const app = agent({ name: "mock-agent86" })
   .onRequest(methods.agent.session.new, ({ params }) => {
     remember("session/new", params);
     return { sessionId: `mock-session-${nextSession++}` };
+  })
+  .onNotification(methods.agent.session.cancel, ({ params }) => {
+    remember("session/cancel", params);
+    cancelled.add(params.sessionId);
+  })
+  // Turns follow the same scripts as mock-openai.js, so a test reads the same against either.
+  .onRequest(methods.agent.session.prompt, async ({ params, client }) => {
+    remember("session/prompt", params);
+    const { sessionId } = params;
+    cancelled.delete(sessionId);
+    const text = params.prompt
+      .map((block) => (block.type === "text" ? block.text : ""))
+      .join("")
+      .trim();
+    /** @param {"agent_message_chunk" | "agent_thought_chunk"} kind @param {string} chunk */
+    const say = (kind, chunk) =>
+      client.notify(methods.client.session.update, {
+        sessionId,
+        update: { sessionUpdate: kind, content: { type: "text", text: chunk } },
+      });
+
+    if (text === "/cost") {
+      await say("agent_message_chunk", "steps 0  in 0  out 0 tok  cost n/a (unpriced model)");
+      return { stopReason: "end_turn" };
+    }
+    if (/fail/i.test(text)) {
+      // agent86 sends a model failure as a bare -32603 with the provider's message.
+      throw new RequestError(
+        -32603,
+        'HTTP 400: {"error":{"message":"The mock model refuses: you asked it to fail."}}',
+      );
+    }
+    const { reasoning, content, delayMs } = script(text);
+    for (const [kind, pieces] of /** @type {const} */ ([
+      ["agent_thought_chunk", reasoning],
+      ["agent_message_chunk", content],
+    ])) {
+      for (const piece of pieces) {
+        if (cancelled.has(sessionId)) return { stopReason: "cancelled" };
+        await say(kind, piece);
+        await sleep(delayMs);
+      }
+    }
+    return { stopReason: cancelled.has(sessionId) ? "cancelled" : "end_turn" };
   });
 
 const stream = ndJsonStream(
