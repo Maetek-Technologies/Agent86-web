@@ -16,6 +16,7 @@ The user chose to keep agent86 untouched.
 ## Decision
 
 - The bridge is a **Node.js + TypeScript** command-line program (`agent86-web`). It uses the same toolchain as the web client, is distributed on npm like agent86 itself, and needs Node only (which agent86's npm install already requires).
+- *(Amended by [ADR 0004](0004-project-trust-from-the-browser.md): the bridge also reads the workspace's `.agent86/config.toml`, read-only, for the trust review.)*
 - It talks to agent86 **only** through `agent86 --version` and `agent86 acp`. It never reads agent86's database, config, keyring, or traces, and never imports its code.
 - It is intentionally thin: static file serving, authentication and origin checks, process management, the relay, and a small **policy filter** on client-to-agent messages (cwd jail, stripping `mcpServers`, forcing capabilities off). It does not reinterpret agent messages.
 - Gaps that need agent86 changes are recorded as an upstream wishlist in `PROJECT_PLAN.md`, not patched here.

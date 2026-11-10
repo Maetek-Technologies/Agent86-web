@@ -64,7 +64,19 @@ On narrow screens (under about 768 px), the sidebar collapses into a drawer and 
 - **Phase line,** shown while a turn runs: a spinner, a label (`Thinking…`, `Running <tool>…`, `Waiting for approval`, `Cancelling…`), elapsed time, and Stop.
 - **Input:** an auto-growing textarea with the workspace in its border. `/` opens the command menu (from `available_commands_update` plus local commands). `@` opens a file menu. Up and Down arrows recall history when the caret is at the start or end. The input is disabled while a turn runs, but text can be typed ahead.
 
-### 3.4 Logs drawer
+### 3.4 Project trust
+
+- **Banner,** shown at the top of a thread when the workspace's `.agent86/config.toml` is not trusted: "This project's agent86 settings (MCP servers, providers, approvals …) are being ignored until you trust them." Its actions are **Review and trust** and **Dismiss**.
+- **Review dialog:**
+  - The file path and SHA-256 hash, and the full file in a monospace, read-only, scrollable view with control characters made visible
+  - The settings that need trust, highlighted
+  - A plain warning: "Trusting lets these settings run programs on your machine and change where your keys are sent."
+  - Buttons: **Cancel** (default and focused) and **Trust this file**. Nothing happens on Enter alone.
+- **After trusting:** "Restarting agent86 with this project's settings…", then the thread continues (`session/load`).
+- **Settings → Trusted projects:** a list of records (path, hash, date) with Revoke.
+- Trust given here is not seen by agent86 at the terminal, and the dialog says so.
+
+### 3.5 Logs drawer
 
 agent86's stderr notes for this thread's process: MCP startup, ignored untrusted settings, memory notes. They show monospace, newest at the bottom, with a copy button. A notice badge appears on the drawer when an untrusted-settings note is seen.
 
@@ -101,8 +113,8 @@ agent86's stderr notes for this thread's process: MCP startup, ignored untrusted
 - **Type:** a system UI font for prose. A monospace font for code, tool cards, the input border label, and the wordmark accent.
 - **Colour:** neutral greys. One accent drawn from the agent86 logo. Semantic colours for diff additions and removals, errors, and approval (amber).
 - **Motion:** minimal. A spinner and a gentle stream-in, both disabled under `prefers-reduced-motion`.
-- **Brand assets:** use agent86's logo only as its license allows and with attribution. See [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md#q7-branding).
+- **Brand assets:** the agent86 name, logo, and detective mascot are used with permission. Use the mascot in the top bar, the empty states, and the favicon. Credit agent86 and Maetek Technologies in the About dialog.
 
 ## 7. Component inventory
 
-`AppShell`, `TopBar`, `WorkspacePicker`, `SessionSidebar`, `ThreadTabs`, `ThreadHeader`, `ModelSelect`, `ModeSelect`, `Transcript`, `UserMessage`, `AssistantMessage`, `MarkdownView`, `CodeBlock`, `ThinkingBlock`, `ToolCallCard`, `PermissionPanel`, `DiffView`, `CommandPreview`, `PhaseLine`, `PromptInput`, `CommandMenu`, `MentionMenu`, `LogsDrawer`, `ConnectionBanner`, `EmptyState`, `HelpDialog`, `QuickSwitcher`.
+`AppShell`, `TopBar`, `WorkspacePicker`, `SessionSidebar`, `ThreadTabs`, `ThreadHeader`, `ModelSelect`, `ModeSelect`, `Transcript`, `UserMessage`, `AssistantMessage`, `MarkdownView`, `CodeBlock`, `ThinkingBlock`, `ToolCallCard`, `PermissionPanel`, `DiffView`, `CommandPreview`, `PhaseLine`, `PromptInput`, `CommandMenu`, `MentionMenu`, `LogsDrawer`, `ConnectionBanner`, `EmptyState`, `HelpDialog`, `QuickSwitcher`, `TrustBanner`, `TrustDialog`, `TrustedProjectsSettings`, `AboutDialog`.

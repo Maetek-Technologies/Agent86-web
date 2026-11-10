@@ -84,7 +84,7 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 |---|---|---|---|
 | `request_secret` masked prompt, `/secret NAME` | not offered (ACP forbids forms for secrets) | Explains how to remember the secret for the project at the terminal. Remembered secrets load automatically. | ⛔ ([Q3](OPEN_QUESTIONS.md#q3-secrets)) |
 | `/secret` (list names) | slash command | Command | ✅ |
-| Project trust question | never asked over ACP | Untrusted settings show as a notice from the stderr log. See [Q2](OPEN_QUESTIONS.md#q2-project-trust). | 🟡 |
+| Project trust question | never asked over ACP | A banner, then a review dialog showing the file. The bridge records trust by hash and passes `--trust-project` ([ADR 0004](adr/0004-project-trust-from-the-browser.md)). | ✅ M4. Browser trust is not seen by the terminal. |
 | `/config mcp` | none | Terminal only | ⛔ |
 | `/limits` and the offer to raise a reached limit | none | Terminal only | ⛔ |
 

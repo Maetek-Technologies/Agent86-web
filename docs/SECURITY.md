@@ -38,6 +38,8 @@ The bridge is a local web server that can make agent86 edit files and run comman
 | T12 | **Resource exhaustion** | Limits on frame size (e.g. 8 MiB), live agents (`--max-agents`), and message rate. Idle processes are reaped. |
 | T13 | **Approval spoofing:** the model writes text that looks like an approval dialog | Approvals come only from `session/request_permission`, in a visually distinct UI element that model output cannot produce. |
 | T14 | **Leaking secrets into the browser** | agent86 already redacts secret values to `${secret:NAME}` before anything reaches the protocol. The bridge does not log message bodies by default. stderr shown in the UI is agent86's own notes, already redacted. |
+| T16 | **Trust without informed consent:** the user trusts a project without seeing what it does, or a page trusts it for them | Trust needs the dialog showing the file's full contents (control characters made visible), with Cancel as the default. `POST /api/trust` needs the cookie, the origin check, the custom header, and the exact hash of the file the user saw. |
+| T17 | **Trust carried over to a changed file** (e.g. after a `git pull`) | Trust is keyed by realpath plus SHA-256, and the file is re-hashed right before each spawn. A mismatch runs the thread restricted and shows the banner again. The remaining hash-to-read window is documented in ADR 0004. |
 | T15 | **Supply chain:** a malicious npm dependency | Few runtime dependencies (the bridge needs about two), a committed lockfile, `pnpm audit` in CI, pinned GitHub Actions by SHA (as agent86 does), and npm provenance when publishing. |
 
 ## 4. What stays agent86's responsibility
@@ -47,12 +49,12 @@ The bridge does not weaken any agent86 protection, and does not duplicate them e
 - The approval gate and modes, with every outcome other than "allow once" declining
 - The workspace jail for file tools, the sandboxed executor, and the scrubbed environment
 - The guardrails (ingress, egress, observation) and SSRF protection for `web_fetch`
-- Project-file trust (risky project settings are ignored over ACP until trusted)
+- Project-file trust (risky project settings are ignored over ACP until trusted). The bridge adds one path to trust, the browser dialog, under the controls in T16 and T17, and records it only in its own file.
 - Secret redaction
 
 ## 5. Explicit phase 1 limits
 
-- **No remote access.** Using the UI from another device means an SSH tunnel (`ssh -L`) to the bridge. The docs will say so. Exposing the bridge to a network is out of scope until phase 2 has real authentication.
+- **No remote access.** Using the UI from another device means an SSH tunnel (`ssh -L`) to the bridge, as the README documents. The `Host` allowlist already accepts `127.0.0.1:PORT` on the forwarded side. Exposing the bridge to a network is out of scope until phase 2 has real authentication.
 - **No authentication beyond the launch token.** Anyone who can read the URL while the token is valid, or who has the cookie, controls the agent.
 
 ## 6. Checklist for M5 review
@@ -64,3 +66,4 @@ The bridge does not weaken any agent86 protection, and does not duplicate them e
 - [ ] CSP header present, and no inline scripts in the build
 - [ ] Markdown renderer XSS test corpus
 - [ ] Message bodies are not logged by default
+- [ ] Trust: no record without the dialog, a stale hash is refused, a changed file runs restricted, revoke works, and the records file has mode `0600`

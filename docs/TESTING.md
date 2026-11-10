@@ -58,6 +58,7 @@ The bridge accepts `--agent86 <path-to-mock>`, so the same code path is tested. 
 11. Reload during a turn → reattach → no lost messages
 12. Idle reap → reopen → `session/load` restores
 13. agent86 missing or too old → explanatory page
+14. Untrusted project → banner → review → trust → process restarts with `--trust-project` → project MCP server tools appear. Edit the file → restricted again.
 
 ## 5. Quality gates
 

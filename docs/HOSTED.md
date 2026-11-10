@@ -52,7 +52,7 @@ The ACP layer, transcript, approvals, and pickers stay the same.
 3. **Abuse:** sign-up limits, egress controls, and quotas on compute and model spend (BYO keys reduce, but do not remove, the risk).
 4. **Data protection:** session databases hold code and conversation. This raises questions of encryption at rest, retention, deletion on request, and region.
 5. **agent86 upgrades:** roll image versions without breaking resumed sessions. The session database stays compatible across agent86 versions, which helps.
-6. **Licensing and naming:** whether a hosted service may use the agent86 name and logo. See [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md#q7-branding).
+6. **Naming:** the agent86 name and logo are approved for agent86-web. Confirm with Maetek that this extends to a hosted service.
 
 ## 6. Rough milestones
 

@@ -59,7 +59,8 @@ agent86-web/
 │   │   │   ├── auth.ts        # token, Host/Origin checks, cookie
 │   │   │   ├── processes.ts   # spawn/stop agent86 acp, idle reaping
 │   │   │   ├── relay.ts       # NDJSON ⇄ WS framing, backpressure
-│   │   │   └── policy.ts      # inspects client→agent messages (cwd jail, MCP)
+│   │   │   ├── policy.ts      # inspects client→agent messages (cwd jail, MCP)
+│   │   │   └── trust.ts       # project config review, hash records, --trust-project
 │   │   └── test/
 │   └── mock-agent/            # scripted ACP agent for tests (no model, no network)
 └── .github/workflows/ci.yml
