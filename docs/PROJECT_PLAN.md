@@ -20,6 +20,9 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 | Who is it for? | **A personal developer tool**, for people who already use agent86 locally. | — |
 | Frontend stack | **React + TypeScript + Vite**, with Tailwind and shadcn/ui | [ADR 0002](adr/0002-react-vite-spa.md) |
 | Does this repo change agent86? | **No.** A web client plus a standalone bridge, talking only to `agent86 acp`. | [ADR 0003](adr/0003-standalone-bridge.md) |
+| Can the browser trust a project? | **Yes**, after showing the file's contents. The bridge remembers the decision by the file's hash and starts trusted threads with `--trust-project`. | [ADR 0004](adr/0004-project-trust-from-the-browser.md) |
+| Name, branding, license | Published as `agent86-web` on npm. The agent86 name, logo, and mascot are used with permission. MIT license. | [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md#decided) |
+| Remote access in phase 1 | SSH port forwarding only. The bridge stays on loopback. | [SECURITY.md](SECURITY.md#5-explicit-phase-1-limits) |
 
 ## 3. Goals and non-goals
 
@@ -33,6 +36,7 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 - **Several threads at once**, in tabs or a sidebar, each running independently.
 - **Cancel** a turn at its next safe point.
 - **Slash commands** that agent86 offers over ACP (`/mode`, `/model`, `/thinking`, `/toolview`, `/resume`, `/secret`, `/cost`, `/tools`).
+- **Project trust:** review and trust a project's `.agent86/config.toml` from the browser ([ADR 0004](adr/0004-project-trust-from-the-browser.md)).
 - **Safe by default:** the bridge listens only on loopback, needs a per-launch token, and rejects foreign origins (see [SECURITY.md](SECURITY.md)).
 - **One-command install:** `npx agent86-web`.
 
@@ -42,7 +46,7 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 - Re-implementing the agent loop, tools, or providers in the browser.
 - Configuration management screens (`/config model`, `/config mcp`). These stay in the terminal for now, because ACP has no messages for them. See [FEATURE_PARITY.md](FEATURE_PARITY.md).
 - Entering secrets in the browser. ACP forbids an agent asking for a password or key through a form, and agent86 does not offer `request_secret` over ACP. Secrets remembered for a project at the terminal still work. See [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md#q3-secrets).
-- Multi-user accounts, remote access, and mobile apps. These are phase 2 or later.
+- Multi-user accounts, remote access beyond SSH port forwarding, and mobile apps. These are phase 2 or later.
 - Pixel-matching the terminal interface. The web UI follows the terminal's information and behavior, not its look.
 
 ## 4. Phases and milestones
@@ -55,7 +59,7 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 | M1 | **Skeleton** | pnpm monorepo (`web`, `bridge`, `acp-client`), CI (lint, typecheck, test), the bridge serves the SPA and relays one `initialize` round trip to `agent86 acp` | `pnpm dev` shows agent86's handshake answer (version, capabilities) in the browser |
 | M2 | **Chat** | `session/new`, `session/prompt`, streaming `agent_message_chunk` and `agent_thought_chunk` rendered as Markdown, `session/cancel`, error display | A full text-only conversation against a real model, plus cancel |
 | M3 | **Tools and approvals** | Tool-call cards (`tool_call`, `tool_call_update`), `session/request_permission` dialog with a diff viewer for file edits and a command view for `run_command` | Edit a file in a test project through the browser with an approval, and decline one |
-| M4 | **Sessions, models, workspaces** | Session sidebar (`session/list`, `session/load` replay), workspace picker limited to `--root`, mode and model pickers (`session/set_config_option`, `config_option_update`), slash-command menu (`available_commands_update`), several threads at once | Resume a session started at the terminal; switch model mid-thread; run two threads in parallel |
+| M4 | **Sessions, models, workspaces** | Session sidebar (`session/list`, `session/load` replay), workspace picker limited to `--root`, mode and model pickers (`session/set_config_option`, `config_option_update`), slash-command menu (`available_commands_update`), several threads at once, the project trust banner and dialog | Resume a session started at the terminal; switch model mid-thread; run two threads in parallel; trust a project and see its MCP servers start |
 | M5 | **Hardening and release** | Security review of the bridge, reconnect handling, the agent86 version check, packaging (`npx agent86-web` with the built SPA embedded), end-to-end tests in CI, user docs | v0.1.0 published to npm |
 
 Milestones are vertical slices: each one leaves a usable app. Details for each are in [ARCHITECTURE.md](ARCHITECTURE.md) and [UI_DESIGN.md](UI_DESIGN.md).
@@ -81,7 +85,7 @@ Phase 1 uses only what `agent86 acp` offers today. Some terminal features have n
 | Remembered permission choices ("always allow") | Fewer prompts in long sessions | Switch the thread to `auto` mode |
 | ACP `terminal/*` | Live command output in a terminal widget | Command output arrives as text in the tool result |
 | A safe way to enter secrets | `request_secret` in the browser | `/secret NAME` at a terminal, remembered for the project |
-| Project trust over ACP | Trusting a project from the UI | Answer the trust question once at a terminal, or start the bridge with `--trust-project` (see [OPEN_QUESTIONS.md](OPEN_QUESTIONS.md#q2-project-trust)) |
+| `agent86 trust <path>`, or trust over ACP | Record browser trust in agent86's own file, so the terminal honors it too and the hash-to-spawn race goes away | The bridge keeps its own record and passes `--trust-project` ([ADR 0004](adr/0004-project-trust-from-the-browser.md)) |
 | Plans (`plan` updates) | A to-do view of the agent's plan | None |
 | Images in prompts | Paste screenshots | None |
 
@@ -101,3 +105,4 @@ Phase 1 uses only what `agent86 acp` offers today. Some terminal features have n
 | Date | Change |
 |---|---|
 | 2026-11-10 | M0 started: initial plan, architecture, parity, security, UI, testing, hosted sketch, and ADRs 0001–0003 |
+| 2026-11-10 | Decided: trust from the browser (ADR 0004), `agent86-web` npm name, agent86 branding with permission, MIT license, SSH forwarding for remote use |

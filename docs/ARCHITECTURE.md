@@ -100,6 +100,9 @@ At startup the bridge:
 | `POST /api/login` | Exchanges the URL token for an `HttpOnly`, `SameSite=Strict` session cookie. The SPA then removes the token from the URL. |
 | `GET /api/info` | Bridge version, agent86 version and path, roots, limits |
 | `GET /api/workspaces?path=` | Lists directories under a root, for the workspace picker. It never reads file contents. |
+| `GET /api/trust?workspace=` | The project's `.agent86/config.toml` (contents, path, SHA-256 hash) and whether the bridge has a matching trust record ([ADR 0004](adr/0004-project-trust-from-the-browser.md)) |
+| `POST /api/trust` | Records trust for `{path, sha256}`. It is refused if the hash no longer matches the file on disk. |
+| `DELETE /api/trust` | Revokes a trust record |
 | `GET /acp/<threadId>` (WebSocket upgrade) | Opens or reattaches to the ACP channel for one thread |
 
 Every route checks the cookie, the `Host` header, and (for the WebSocket) the `Origin` header. See [SECURITY.md](SECURITY.md).
@@ -113,6 +116,7 @@ agent86's ACP server runs **one turn at a time per connection**: a second `sessi
 - An idle process is stopped after `--idle-timeout`. Reopening the thread starts a new process and calls `session/load` with the saved session ID, which agent86 replays from its database.
 - `--max-agents` caps the live processes. When the cap is reached, the least recently used idle process is stopped first. If all are busy, the new thread is refused with a clear message.
 - The process is started in the thread's workspace directory, because agent86 reads `./.agent86/config.toml` from where it starts.
+- Right before spawning, the bridge hashes that file. If the hash matches a record in `~/.agent86-web/trusted-projects.json`, it adds `--trust-project` before `acp`. Trusting a project from the UI restarts the thread's process this way and calls `session/load`.
 - Its stderr (agent86's notes) is captured to a ring buffer and shown in a "logs" drawer in the UI.
 
 Read-only screens (the session list, the workspace browser) use a short-lived **utility process** that answers `initialize` and `session/list` and is then stopped.

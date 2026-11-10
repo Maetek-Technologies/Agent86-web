@@ -58,6 +58,20 @@ Then pick a project under `~/code`, start a thread, and chat.
 
 This is an independent client for agent86. It talks to agent86 only through its public `agent86 acp` interface, never by importing its code or reading its database directly. Phase 1 targets agent86 **v1.0.15** or newer, the version whose ACP server was checked against the protocol's v1 schema.
 
+## Using it from another device
+
+The bridge listens only on `127.0.0.1`. To use it from a laptop or tablet, forward the port over SSH from that device:
+
+```sh
+ssh -L 8686:127.0.0.1:8686 you@dev-machine   # then, on dev-machine: npx agent86-web --port 8686 --no-open
+```
+
+Open the printed URL (with its `#token=…`) on the device as `http://127.0.0.1:8686/…`. Binding to other addresses is refused until phase 2 brings real authentication.
+
+## Credits
+
+agent86 and its name, logo, and mascot belong to [Maetek Technologies](https://github.com/Maetek-Technologies/agent86) and are used with permission. agent86-web is a separate client for it.
+
 ## License
 
-To be decided. MIT would match agent86; see [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md).
+MIT. See [LICENSE](LICENSE).
