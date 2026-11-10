@@ -19,6 +19,9 @@ Each question has a recommendation. Settle each one before the milestone listed 
 ### Q9. Remote access in phase 1
 **Decided 2026-11-10:** SSH port forwarding only. The bridge stays bound to loopback, and the README documents `ssh -L`. Real remote access waits for phase 2's authentication.
 
+### Q6. ACP library
+**Decided 2026-11-10 (M1):** use the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk) (Apache-2.0), pinned to an exact version, wrapped in `packages/acp-client`. It is built on Web Streams, so it runs in the browser unchanged. It plays both the client role (the web UI) and the agent role (the mock agent), bundles the v1 schema, and validates messages with zod. The browser transport is a small adapter (`webSocketStream`). The cost is bundle size: the M1 client is about 108 kB gzipped, mostly the SDK and zod. Revisit if that matters, for example by lazy-loading or importing narrower entry points.
+
 ## Open
 
 ### Q3. Secrets
@@ -36,14 +39,10 @@ ACP forbids an agent asking for passwords or keys through a form, so agent86 doe
 One agent86 process per thread allows parallel turns but costs memory (each may load the embedding model). One process with several sessions is lighter but allows only one turn at a time across all of them.
 **Recommendation:** one process per thread, with `--max-agents` and idle reaping. Measure memory in M4 and revisit.
 
-### Q6. ACP library
-**Needed by:** M1
-Use the ACP project's official TypeScript library, or hand-write a small client typed from the JSON schema?
-**Recommendation:** evaluate the official library in M1, checking browser compatibility (no Node-only stream dependencies), bundle size, and support for the client role over a custom transport. Use it if it fits. Otherwise hand-write, as agent86 did on the agent side.
-
-### Q10. Minimum agent86 version and update notices
-**Needed by:** M1
-**Recommendation:** require agent86 ≥ 1.0.15. The bridge checks the version at startup and in `initialize`. Show a non-blocking notice when a newer agent86 release exists, which needs one GitHub API call a day and can be turned off, as agent86's own check can.
+### Q10. Update notices
+**Needed by:** M5
+The minimum version part is done in M1: the bridge refuses agent86 older than 1.0.15 at startup (`agent86 --version`), and the client checks `initialize`'s `agentInfo` again.
+**Recommendation:** show a non-blocking notice when a newer agent86 or agent86-web release exists. It needs one GitHub or npm call a day and can be turned off, as agent86's own check can.
 
 ### Q11. Distribution beyond npm
 **Needed by:** after M5

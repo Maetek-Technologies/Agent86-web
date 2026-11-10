@@ -86,6 +86,10 @@ agent86-web [--root <dir>]... [--port <n>] [--host 127.0.0.1]
 | `--no-open` | off | Print the URL instead of opening the browser |
 | `--max-agents` | `8` | The most agent86 processes alive at once |
 | `--idle-timeout` | `15m` | Stop an agent86 process whose thread has been idle this long |
+| `--dev-origin` | — | Development only: also allow this origin (the Vite dev server); the printed link points at it |
+| `--static` | `dist/public` | Serve the web client from another directory |
+
+As built in M1: `--max-agents` and `--idle-timeout` are not implemented yet (M4). `--agent-arg` takes its value after `=` (`--agent-arg=--model`), because Node's argument parser refuses a separate value that starts with `-`.
 
 At startup the bridge:
 

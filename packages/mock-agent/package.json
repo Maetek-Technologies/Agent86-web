@@ -1,0 +1,18 @@
+{
+  "name": "@agent86-web/mock-agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A scripted stand-in for `agent86` that speaks ACP on stdio, for tests. No model, no network.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "mock-agent86": "./src/mock-agent86.js"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.6.0",
+    "zod": "4.6.7"
+  }
+}

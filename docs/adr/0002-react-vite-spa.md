@@ -12,7 +12,7 @@ Alternatives considered: Next.js (its SSR and server features are unused locally
 
 ## Decision
 
-- **React 18** with **TypeScript** (strict) and **Vite**, built to static assets
+- **React 19** with **TypeScript** (strict) and **Vite**, built to static assets
 - **Tailwind CSS** and **shadcn/ui** (Radix primitives) for accessible components and theming
 - **Zustand** for state. The protocol state lives in the framework-free `acp-client` package.
 - A Markdown renderer with raw HTML disabled, lazy syntax highlighting, and a diff viewer component, each chosen in M2 or M3 for bundle size and safety

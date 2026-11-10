@@ -1,6 +1,6 @@
 # Project plan
 
-**Status:** planning (milestone 0)
+**Status:** milestone M1 done; M2 (chat) next
 **Last updated:** 2026-11-10
 **Upstream baseline:** agent86 v1.0.15 (`Maetek-Technologies/agent86@fef902d`)
 
@@ -55,8 +55,8 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 
 | # | Milestone | Outcome | Exit criteria |
 |---|---|---|---|
-| M0 | **Planning** | These documents | Plan reviewed, open questions triaged |
-| M1 | **Skeleton** | pnpm monorepo (`web`, `bridge`, `acp-client`), CI (lint, typecheck, test), the bridge serves the SPA and relays one `initialize` round trip to `agent86 acp` | `pnpm dev` shows agent86's handshake answer (version, capabilities) in the browser |
+| M0 ✅ | **Planning** | These documents | Plan reviewed, open questions triaged |
+| M1 ✅ | **Skeleton** | pnpm monorepo (`web`, `bridge`, `acp-client`), CI (lint, typecheck, test), the bridge serves the SPA and relays one `initialize` round trip to `agent86 acp` | `pnpm dev` shows agent86's handshake answer (version, capabilities) in the browser |
 | M2 | **Chat** | `session/new`, `session/prompt`, streaming `agent_message_chunk` and `agent_thought_chunk` rendered as Markdown, `session/cancel`, error display | A full text-only conversation against a real model, plus cancel |
 | M3 | **Tools and approvals** | Tool-call cards (`tool_call`, `tool_call_update`), `session/request_permission` dialog with a diff viewer for file edits and a command view for `run_command` | Edit a file in a test project through the browser with an approval, and decline one |
 | M4 | **Sessions, models, workspaces** | Session sidebar (`session/list`, `session/load` replay), workspace picker limited to `--root`, mode and model pickers (`session/set_config_option`, `config_option_update`), slash-command menu (`available_commands_update`), several threads at once, the project trust banner and dialog | Resume a session started at the terminal; switch model mid-thread; run two threads in parallel; trust a project and see its MCP servers start |
@@ -106,3 +106,4 @@ Phase 1 uses only what `agent86 acp` offers today. Some terminal features have n
 |---|---|
 | 2026-11-10 | M0 started: initial plan, architecture, parity, security, UI, testing, hosted sketch, and ADRs 0001–0003 |
 | 2026-11-10 | Decided: trust from the browser (ADR 0004), `agent86-web` npm name, agent86 branding with permission, MIT license, SSH forwarding for remote use |
+| 2026-11-10 | **M1 done.** pnpm monorepo (`bridge`, `web`, `acp-client`, `mock-agent`). The bridge has the version check, launch token and session cookie, Host, Origin, and CSRF checks, CSP, the static SPA, one `agent86 acp` per WebSocket, and the policy filter (method allowlist, forced capabilities, cwd pinned to the workspace, `mcpServers` stripped). The web client signs in, removes the token from the URL, and shows the `initialize` answer with a compatibility check. 73 unit and integration tests, plus 6 Playwright tests, one of them against the real agent86 1.0.15. CI covers lint, format, typecheck, `pnpm audit`, tests on Linux, macOS, and Windows, and end-to-end tests on Node 20 and 22. Q6 decided: the official ACP SDK. |

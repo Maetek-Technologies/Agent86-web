@@ -4,7 +4,7 @@ A browser interface for [agent86](https://github.com/Maetek-Technologies/agent86
 
 agent86-web gives you agent86's conversation, tool calls, approvals, and saved sessions in a browser tab. The agent itself does not change. agent86 still runs on your machine, with your config, keys, sandbox, memory, and sessions. The website is a different way to drive it.
 
-> **Status: planning.** There is no code yet. This repository holds the plan, and the documents under [`docs/`](docs/) describe what will be built and in what order.
+> **Status: milestone M1 (skeleton) done.** The bridge starts agent86, the browser signs in and completes the ACP handshake, and the page shows what agent86 reported. Chat arrives in M2. Nothing is published to npm yet. The plan is in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
 
 ## How it will work
 
@@ -35,24 +35,51 @@ Then pick a project under `~/code`, start a thread, and chat.
 
 ## Documentation
 
-| Document | What it covers |
-|---|---|
-| [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) | Goals, scope, phases, milestones, and current status (the source of truth) |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, repository layout, data flow, and how a turn travels end to end |
+| Document                                         | What it covers                                                                         |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)     | Goals, scope, phases, milestones, and current status (the source of truth)             |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)     | Components, repository layout, data flow, and how a turn travels end to end            |
 | [docs/FEATURE_PARITY.md](docs/FEATURE_PARITY.md) | Each agent86 terminal feature, the ACP message behind it, and how the web UI covers it |
-| [docs/UI_DESIGN.md](docs/UI_DESIGN.md) | Screens, layout, components, and interaction details |
-| [docs/SECURITY.md](docs/SECURITY.md) | Threat model and protections for a localhost bridge that can run commands |
-| [docs/HOSTED.md](docs/HOSTED.md) | Phase 2 design sketch: a multi-user hosted backend |
-| [docs/TESTING.md](docs/TESTING.md) | Test strategy: mock agent, protocol schema checks, end-to-end runs |
-| [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md) | Decisions still to make |
-| [docs/adr/](docs/adr/) | Architecture decision records |
+| [docs/UI_DESIGN.md](docs/UI_DESIGN.md)           | Screens, layout, components, and interaction details                                   |
+| [docs/SECURITY.md](docs/SECURITY.md)             | Threat model and protections for a localhost bridge that can run commands              |
+| [docs/HOSTED.md](docs/HOSTED.md)                 | Phase 2 design sketch: a multi-user hosted backend                                     |
+| [docs/TESTING.md](docs/TESTING.md)               | Test strategy: mock agent, protocol schema checks, end-to-end runs                     |
+| [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md) | Decisions still to make                                                                |
+| [docs/adr/](docs/adr/)                           | Architecture decision records                                                          |
 
 ## Planned tech stack
 
-- **Web client:** React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, a Markdown renderer with syntax highlighting, and a diff viewer
+- **Web client:** React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, a Markdown renderer with syntax highlighting, and a diff viewer
 - **Bridge:** Node.js 20+, TypeScript, `ws`, published to npm as one package that contains the built web client
-- **Protocol:** ACP v1 (JSON-RPC 2.0), typed from the protocol's published schema
+- **Protocol:** ACP v1 (JSON-RPC 2.0) through the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk)
 - **Tooling:** pnpm workspaces, Vitest, Playwright, ESLint, and Prettier
+
+## Development
+
+You need Node.js 22.12 or newer, pnpm 10 (`corepack enable`), and agent86 1.0.15 or newer on your `PATH` (`npm install -g agent86`). The published bridge itself runs on Node 20.19 or newer.
+
+```sh
+pnpm install
+pnpm dev          # the bridge on :8686 and Vite on :5173; open the printed link
+pnpm test         # unit and integration tests (Vitest)
+pnpm e2e          # build, then Playwright end-to-end tests against the mock agent
+AGENT86_BIN=agent86 pnpm e2e   # ...and against the real agent86 too
+pnpm lint && pnpm format:check && pnpm typecheck
+```
+
+To run the built bridge as users will:
+
+```sh
+pnpm build
+node packages/bridge/dist/cli.js --root ~/code
+```
+
+| Package                                      | What it is                                                                                          |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [`packages/bridge`](packages/bridge)         | `agent86-web`, the published CLI: HTTP and WebSocket server, auth, policy filter, agent86 processes |
+| [`packages/web`](packages/web)               | The React SPA, built into the bridge's `dist/public`                                                |
+| [`packages/acp-client`](packages/acp-client) | The browser side of ACP: a WebSocket transport and the agent86 handshake                            |
+| [`packages/mock-agent`](packages/mock-agent) | `mock-agent86`, a scripted stand-in for agent86 used by the tests                                   |
 
 ## Relationship to agent86
 
