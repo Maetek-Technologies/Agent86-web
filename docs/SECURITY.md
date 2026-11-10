@@ -1,0 +1,66 @@
+# Security design (phase 1)
+
+The bridge is a local web server that can make agent86 edit files and run commands. Any web page the user visits can try to talk to a server on `localhost`, so the bridge must be treated as remote-code-execution-adjacent and locked down. This document is the threat model and the required protections. M5 includes a review against it.
+
+## 1. Assets
+
+- The user's files and shell, reachable through agent86's tools (sandboxed, but writing the workspace is the point)
+- API keys in the OS keyring and the environment
+- Session history and memory (`~/.agent86/memory.db`), which may contain code and secrets the model saw
+
+## 2. Trust boundaries
+
+```
+ Other web pages ✗──▶ │ bridge (127.0.0.1) │ ──▶ agent86 acp ──▶ sandbox / disk / network
+ Other local users ✗─▶│                    │
+ The SPA (trusted) ──▶│                    │
+```
+
+- The **SPA** that the bridge itself served, holding the session cookie, is trusted.
+- **Everything else** is untrusted: other origins in the same browser, other processes and users on the machine, and the network.
+- **Model output** is untrusted content (prompt injection). It is rendered, never executed, by the client.
+
+## 3. Threats and required controls
+
+| # | Threat | Control |
+|---|---|---|
+| T1 | **Network exposure:** someone on the LAN connects | Bind to `127.0.0.1` (or `::1`) only. Refuse any other `--host` in phase 1. |
+| T2 | **Cross-site WebSocket hijacking:** `evil.com` opens `ws://127.0.0.1:PORT/acp/...` | Check that the WebSocket `Origin` equals the bridge's own origin exactly. Require the session cookie. Browsers send `SameSite=Strict` cookies only on same-site requests. |
+| T3 | **DNS rebinding:** `evil.com` resolves to 127.0.0.1 | Allow only these `Host` header values: `127.0.0.1:PORT`, `localhost:PORT`, and `[::1]:PORT`. Reject everything else with 403. |
+| T4 | **CSRF on REST endpoints** | Cookie is `SameSite=Strict`. State-changing routes require `POST` with a custom header (`X-Agent86-Web: 1`) and the origin check. No CORS headers are ever sent. |
+| T5 | **Port scanning or guessing by a local process or page** | A per-launch 256-bit token is needed to obtain the cookie. It is passed in the URL fragment (never sent to the server in logs or as a referrer), exchanged once at `POST /api/login`, then removed from the address bar. The token expires once used, or 5 minutes after launch. |
+| T6 | **Other local users** on a shared machine | The token protects the server. The bridge may also write the URL to a file readable only by its owner (`0600`) instead of printing it when `--no-open` is used. |
+| T7 | **Browser chooses a working directory outside the allowed roots** | Resolve `cwd` with symlinks followed (`realpath`), and require it to be inside a `--root`. The directory listing API applies the same jail, lists names only, and skips dotfiles by default. |
+| T8 | **Browser injects an MCP server** (`session/new.mcpServers` runs commands as the user) | Strip `mcpServers` from client messages in phase 1. |
+| T9 | **Browser claims fs or terminal capabilities** | Force `clientCapabilities` to `{fs: {readTextFile:false, writeTextFile:false}, terminal:false}`. |
+| T10 | **XSS from model output, tool output, or file names** | Render Markdown with raw HTML disabled, sanitize links (`http`, `https`, and `mailto` only, with `rel=noopener noreferrer`), and never use `dangerouslySetInnerHTML` on untrusted content. Serve a strict CSP: `default-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'`. |
+| T11 | **Clickjacking the approval dialog** | `frame-ancestors 'none'` and `X-Frame-Options: DENY` |
+| T12 | **Resource exhaustion** | Limits on frame size (e.g. 8 MiB), live agents (`--max-agents`), and message rate. Idle processes are reaped. |
+| T13 | **Approval spoofing:** the model writes text that looks like an approval dialog | Approvals come only from `session/request_permission`, in a visually distinct UI element that model output cannot produce. |
+| T14 | **Leaking secrets into the browser** | agent86 already redacts secret values to `${secret:NAME}` before anything reaches the protocol. The bridge does not log message bodies by default. stderr shown in the UI is agent86's own notes, already redacted. |
+| T15 | **Supply chain:** a malicious npm dependency | Few runtime dependencies (the bridge needs about two), a committed lockfile, `pnpm audit` in CI, pinned GitHub Actions by SHA (as agent86 does), and npm provenance when publishing. |
+
+## 4. What stays agent86's responsibility
+
+The bridge does not weaken any agent86 protection, and does not duplicate them either:
+
+- The approval gate and modes, with every outcome other than "allow once" declining
+- The workspace jail for file tools, the sandboxed executor, and the scrubbed environment
+- The guardrails (ingress, egress, observation) and SSRF protection for `web_fetch`
+- Project-file trust (risky project settings are ignored over ACP until trusted)
+- Secret redaction
+
+## 5. Explicit phase 1 limits
+
+- **No remote access.** Using the UI from another device means an SSH tunnel (`ssh -L`) to the bridge. The docs will say so. Exposing the bridge to a network is out of scope until phase 2 has real authentication.
+- **No authentication beyond the launch token.** Anyone who can read the URL while the token is valid, or who has the cookie, controls the agent.
+
+## 6. Checklist for M5 review
+
+- [ ] Every route and the WebSocket check `Host`, cookie, and (for WebSocket and POST) `Origin`
+- [ ] Tests: wrong Origin, wrong Host, missing cookie, reused token, expired token
+- [ ] `cwd` jail tests with `..`, symlinks, and case-insensitive file systems (macOS, Windows)
+- [ ] `mcpServers` and capabilities are filtered (tested)
+- [ ] CSP header present, and no inline scripts in the build
+- [ ] Markdown renderer XSS test corpus
+- [ ] Message bodies are not logged by default
