@@ -57,6 +57,11 @@ export class AgentProcess {
   /** agent86's requests the attached socket has not answered yet. */
   private readonly asked = new Map<JsonRpcId, string>();
   private readonly now: () => number;
+  /**
+   * agent86's answer to the first `initialize`. A page that reattaches sends `initialize` again,
+   * and agent86 refuses every request while a turn runs, so the bridge answers it from here.
+   */
+  private initResult: unknown;
 
   constructor(private readonly options: AgentProcessOptions) {
     this.now = options.now ?? Date.now;
@@ -172,6 +177,10 @@ export class AgentProcess {
       return;
     }
     const message = verdict.message;
+    if (message.method === "initialize" && isId(message.id) && this.initResult !== undefined) {
+      this.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: this.initResult }));
+      return;
+    }
     if (typeof message.method === "string" && isId(message.id)) {
       const rewritten = `w${this.generation}.${this.nextId++}`;
       this.inflight.set(rewritten, {
@@ -212,6 +221,8 @@ export class AgentProcess {
       // A reply: restore the browser's id, or drop it if its socket has gone.
       const request = this.inflight.get(id)!;
       this.inflight.delete(id);
+      if (request.method === "initialize" && "result" in message)
+        this.initResult ??= message.result;
       if (request.generation !== this.generation || !this.socket) return;
       this.send(JSON.stringify({ ...message, id: request.id }));
       return;

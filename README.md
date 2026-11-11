@@ -4,7 +4,7 @@ A browser interface for [agent86](https://github.com/Maetek-Technologies/agent86
 
 agent86-web gives you agent86's conversation, tool calls, approvals, and saved sessions in a browser tab. The agent itself does not change. agent86 still runs on your machine, with your config, keys, sandbox, memory, and sessions. The website is a different way to drive it.
 
-> **Status: milestone M3 (tools and approvals) done.** Hold a conversation with agent86 in the browser, see each tool call as a card, and approve or reject changes with the diff or command in view. Sessions, model and mode pickers, and several threads arrive in M4. Nothing is published to npm yet. The plan is in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
+> **Status: milestone M4 (sessions, models, workspaces) done.** Run several agent86 threads in tabs, reopen any saved session (including ones started at a terminal), pick the workspace, model, and approval mode, use `/` commands and `@` file mentions, and trust a project's settings after reviewing them. Next is M5: hardening and the first npm release. Nothing is published yet. The plan is in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
 
 ## How it will work
 
@@ -29,6 +29,7 @@ npm install -g agent86          # agent86 itself, if you don't have it
 agent86 keys set openrouter     # a key in the OS keyring, as usual
 
 npx agent86-web --root ~/code   # opens http://127.0.0.1:<port>/#token=…
+                                # --max-agents 8, --idle-timeout 15m by default
 ```
 
 Then pick a project under `~/code`, start a thread, and chat.

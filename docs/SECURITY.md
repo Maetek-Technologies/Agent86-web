@@ -40,6 +40,7 @@ The bridge is a local web server that can make agent86 edit files and run comman
 | T14 | **Leaking secrets into the browser** | agent86 already redacts secret values to `${secret:NAME}` before anything reaches the protocol. The bridge does not log message bodies by default. stderr shown in the UI is agent86's own notes, already redacted. |
 | T16 | **Trust without informed consent:** the user trusts a project without seeing what it does, or a page trusts it for them | Trust needs the dialog showing the file's full contents (control characters made visible), with Cancel as the default. `POST /api/trust` needs the cookie, the origin check, the custom header, and the exact hash of the file the user saw. |
 | T17 | **Trust carried over to a changed file** (e.g. after a `git pull`) | Trust is keyed by realpath plus SHA-256, and the file is re-hashed right before each spawn. A mismatch runs the thread restricted and shows the banner again. The remaining hash-to-read window is documented in ADR 0004. |
+| T18 | **A page that has gone still answers for agent86**, or a new page receives replies meant for the old one | Request ids are rewritten per socket generation, and replies for an old generation are dropped. Requests agent86 makes while no page is attached (permission requests included) are declined by the bridge, never approved. |
 | T15 | **Supply chain:** a malicious npm dependency | Few runtime dependencies (the bridge needs about two), a committed lockfile, `pnpm audit` in CI, pinned GitHub Actions by SHA (as agent86 does), and npm provenance when publishing. |
 
 ## 4. What stays agent86's responsibility
@@ -66,4 +67,5 @@ The bridge does not weaken any agent86 protection, and does not duplicate them e
 - [ ] CSP header present, and no inline scripts in the build
 - [ ] Markdown renderer XSS test corpus
 - [ ] Message bodies are not logged by default
-- [ ] Trust: no record without the dialog, a stale hash is refused, a changed file runs restricted, revoke works, and the records file has mode `0600`
+- [x] Trust: no record without the dialog, a stale hash is refused, a changed file runs restricted, revoke works, and the records file has mode `0600` (bridge `trust.test.ts`, e2e `trust.spec.ts`)
+- [x] Requests from agent86 with no page attached are declined (`threads.test.ts`)

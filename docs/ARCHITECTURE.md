@@ -117,7 +117,7 @@ Every route checks the cookie, the `Host` header, and (for the WebSocket) the `O
 agent86's ACP server runs **one turn at a time per connection**: a second `session/prompt` while one runs is refused. To let threads run in parallel, the bridge gives **each thread its own `agent86 acp` process**:
 
 - A thread is a browser-side ID mapped to one process, which holds one ACP session.
-- The WebSocket for a thread can drop and reattach (a reload, a sleeping laptop) while the process keeps running. The bridge buffers outgoing messages for a short grace period, then replays them in order on reattach.
+- The WebSocket for a thread can drop and reattach (a reload, a sleeping laptop) while the process keeps running. The page then reopens its session with `session/load`, which replays the history (see *As built* below for what happens to messages in flight).
 - An idle process is stopped after `--idle-timeout`. Reopening the thread starts a new process and calls `session/load` with the saved session ID, which agent86 replays from its database.
 - `--max-agents` caps the live processes. When the cap is reached, the least recently used idle process is stopped first. If all are busy, the new thread is refused with a clear message.
 - The process is started in the thread's workspace directory, because agent86 reads `./.agent86/config.toml` from where it starts.
@@ -125,6 +125,17 @@ agent86's ACP server runs **one turn at a time per connection**: a second `sessi
 - Its stderr (agent86's notes) is captured to a ring buffer and shown in a "logs" drawer in the UI.
 
 Read-only screens (the session list, the workspace browser) use a short-lived **utility process** that answers `initialize` and `session/list` and is then stopped.
+
+**As built (M4).** `packages/bridge/src/threads.ts` and `agent-process.ts`:
+
+- **Generations.** Each socket attached to a process is a new generation. The browser's request ids are rewritten to `w<generation>.<n>`, so a reply meant for a socket that has gone is dropped rather than delivered to the next page, whose ids start from zero again.
+- **Nobody to ask.** A request from agent86 that no socket can answer (a permission request while detached, or one left unanswered when a socket closes) is declined by the bridge (`cancelled`), so a turn never waits on a page that has gone.
+- **`initialize` on reattach.** agent86 refuses every request while a turn runs, including `initialize`. The bridge keeps agent86's first answer and gives it to a reattached page itself. The page's `session/load` is then refused until the turn ends, and the client retries it every second (`loadSession({ waitForTurn: true })`), showing "finishing a turn…".
+- **Replacing a socket.** A second socket for the same thread replaces the first, which is closed with code 4000; its page says the thread is open elsewhere and offers to take it back.
+- **Restart.** `?fresh=1` on the WebSocket URL stops the thread's process and starts a new one (after trusting the project). A stopped process's socket is closed with code 4001, and the page reconnects.
+- **Limits.** `--idle-timeout` (default 15m) stops a process with no socket and no turn; `--max-agents` (default 8) stops the least recently used such process to make room, and otherwise refuses the socket with code 1013 and a message.
+- **Notes.** Each stderr line goes to the page as a `_agent86web/stderr` notification (an ACP extension method), and the buffered lines are replayed to a reattached page. The client reads agent86's "ignored N settings that need trust" note from them to show the trust banner.
+- **REST.** `GET /api/sessions?workspace=` (via a utility process), `GET /api/workspaces?path=` (directory names under the roots, hidden ones skipped), `GET /api/files?workspace=&q=` (a bounded walk for `@` mentions: up to 5,000 files, 8 levels, skipping dot-folders, `node_modules`, `target`, `__pycache__`), and `GET|POST|DELETE /api/trust` (ADR 0004).
 
 ### 3.4 Relay and policy
 

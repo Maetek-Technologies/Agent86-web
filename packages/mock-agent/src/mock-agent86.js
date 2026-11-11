@@ -42,6 +42,52 @@ function remember(method, params) {
 // agent86 writes its notes to stderr; the bridge shows them in the logs drawer.
 process.stderr.write(`mock-agent86 ${version}: started in ${process.cwd()}\n`);
 
+// The project file's MCP servers, which agent86 starts only when the file is trusted. Like
+// agent86, say which settings were ignored, and leave the servers' tools out.
+const trusted = args.includes("--trust-project");
+/** @type {string[]} */
+const mcpServers = [];
+/** @type {string[]} */
+const untrustedKeys = [];
+try {
+  const projectConfig = readFileSync(join(process.cwd(), ".agent86", "config.toml"), "utf8");
+  let section = "";
+  for (const raw of projectConfig.split("\n")) {
+    const line = raw.trim();
+    const header = /^\[mcp\.servers\.([\w-]+)\]$/.exec(line);
+    if (header) {
+      section = header[1] ?? "";
+      mcpServers.push(section);
+      continue;
+    }
+    if (line.startsWith("[")) section = "";
+    const key = /^([\w-]+)\s*=/.exec(line)?.[1];
+    if (section && key) untrustedKeys.push(`mcp_servers.${section}.${key}`);
+  }
+} catch {
+  // No project file.
+}
+if (!trusted && untrustedKeys.length > 0) {
+  const count = untrustedKeys.length;
+  process.stderr.write(
+    `project config: ignored ${count} setting${count === 1 ? "" : "s"} that need${count === 1 ? "s" : ""} trust (${untrustedKeys.slice(0, 5).join(", ")}). ` +
+      "Start agent86 at a terminal to review the file, or pass --trust-project (or set AGENT86_TRUST_PROJECT=1).\n",
+  );
+}
+const TOOLS = [
+  "delegate",
+  "edit_file",
+  "list_dir",
+  ...(trusted ? mcpServers.map((name) => `mcp__${name}__mock_echo`) : []),
+  "python_exec",
+  "read_file",
+  "recall",
+  "remember",
+  "run_command",
+  "web_fetch",
+  "write_file",
+].sort();
+
 let nextCall = 1;
 
 // Sessions, kept in a file like agent86's database, so another process can list and load them.
@@ -77,6 +123,33 @@ const DEFAULT_MODEL = "mock:test-model";
 const MODELS = [DEFAULT_MODEL, "mock:cheap-model"];
 /** Sessions this process has open, with their settings. */
 const open = /** @type {Map<string, { mode: string; model: string }>} */ (new Map());
+
+/** The slash commands agent86 offers over ACP. */
+const COMMANDS = [
+  {
+    name: "mode",
+    description: "Show or set the approval mode for this session",
+    input: { hint: "ask, auto, or deny" },
+  },
+  {
+    name: "model",
+    description: "Show or switch the model for this session",
+    input: { hint: "provider:model" },
+  },
+  { name: "cost", description: "Show what this session has cost" },
+  { name: "tools", description: "List the tools the model can use" },
+];
+
+/** Tell the client which commands the session offers, as agent86 does after new and load. */
+/** @param {import("@agentclientprotocol/sdk").AgentContext} client @param {string} sessionId */
+function advertise(client, sessionId) {
+  setTimeout(() => {
+    void client.notify(methods.client.session.update, {
+      sessionId,
+      update: { sessionUpdate: "available_commands_update", availableCommands: COMMANDS },
+    });
+  }, 0);
+}
 
 /** The session's settings as agent86 offers them: the approval mode and the model, grouped. */
 /** @param {{ mode: string; model: string }} settings */
@@ -207,12 +280,13 @@ const app = agent({ name: "mock-agent86" })
       authMethods: [],
     };
   })
-  .onRequest(methods.agent.session.new, ({ params }) => {
+  .onRequest(methods.agent.session.new, ({ params, client }) => {
     remember("session/new", params);
     const sessionId = `mock-${randomBytes(4).toString("hex")}`;
     const settings = { mode: "ask", model: DEFAULT_MODEL };
     open.set(sessionId, settings);
     saveSession(sessionId, (saved) => (saved.cwd = params.cwd));
+    advertise(client, sessionId);
     return { sessionId, configOptions: configOptions(settings) };
   })
   .onRequest(methods.agent.session.list, ({ params }) => {
@@ -249,6 +323,7 @@ const app = agent({ name: "mock-agent86" })
         });
       }
     }
+    advertise(client, params.sessionId);
     return { configOptions: configOptions(settings) };
   })
   .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
@@ -314,10 +389,7 @@ const app = agent({ name: "mock-agent86" })
       return { stopReason: "end_turn" };
     }
     if (text === "/tools") {
-      await say(
-        "agent_message_chunk",
-        "read_file, write_file, edit_file, list_dir, run_command, python_exec, web_fetch",
-      );
+      await say("agent_message_chunk", `tools: ${TOOLS.join(", ")}`);
       return { stopReason: "end_turn" };
     }
     if (/fail/i.test(text)) {

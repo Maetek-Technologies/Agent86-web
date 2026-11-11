@@ -296,3 +296,20 @@ describe("parseDuration", () => {
     expect(parseDuration(text)).toBe(ms);
   });
 });
+
+describe("initialize on reattach", () => {
+  it("answers a reattached page's initialize from agent86's first answer", async () => {
+    await start();
+    const first = await connect("t1");
+    request(first.ws, 0, "initialize", { protocolVersion: 1 });
+    const original = await first.next(reply(0));
+    first.ws.close();
+    await closed(first.ws);
+
+    const second = await connect("t1");
+    request(second.ws, 7, "initialize", { protocolVersion: 1 });
+    const again = await second.next(reply(7));
+    expect(again.result).toEqual(original.result);
+    second.ws.close();
+  });
+});

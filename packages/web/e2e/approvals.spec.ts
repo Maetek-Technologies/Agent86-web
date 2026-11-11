@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { mockAgent86, scriptedModel, startBridge, type Bridge } from "./bridge.ts";
+import { mockAgent86, scriptedModel, startBridge, type Bridge, openThread } from "./bridge.ts";
 
 async function send(page: Page, text: string) {
   const box = page.getByRole("textbox", { name: "Message agent86" });
@@ -27,7 +27,7 @@ function approvalFlows(start: () => Promise<Bridge>) {
   });
 
   test("approves an edit with its diff in view, and the file changes", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "fix the typo");
     const panel = page.getByRole("group", { name: "Approval needed: edit_file" });
     await expect(panel).toBeVisible();
@@ -45,7 +45,7 @@ function approvalFlows(start: () => Promise<Bridge>) {
   });
 
   test("rejects an edit, and the file stays as it was", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "fix the typo");
     await page.getByRole("button", { name: /Reject/ }).click();
     await expect(card(page)).toHaveAttribute("data-state", "declined");
@@ -55,7 +55,7 @@ function approvalFlows(start: () => Promise<Bridge>) {
   });
 
   test("Esc rejects a waiting approval without cancelling the turn", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "fix the typo");
     await expect(page.getByRole("group", { name: "Approval needed: edit_file" })).toBeVisible();
     await page.keyboard.press("Escape");
@@ -66,7 +66,7 @@ function approvalFlows(start: () => Promise<Bridge>) {
   });
 
   test("Stop while an approval waits cancels the turn and declines the call", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "fix the typo");
     await expect(page.getByRole("group", { name: "Approval needed: edit_file" })).toBeVisible();
     await page.getByRole("button", { name: "■ Stop" }).click();
@@ -76,7 +76,7 @@ function approvalFlows(start: () => Promise<Bridge>) {
   });
 
   test("shows the command for run_command, and its output once allowed", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "run a command");
     const panel = page.getByRole("group", { name: "Approval needed: run_command" });
     await expect(panel).toContainText("echo hello-from-agent86");
@@ -86,7 +86,7 @@ function approvalFlows(start: () => Promise<Bridge>) {
   });
 
   test("shows agent86's warning for a write into its own skills", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "add a skill");
     const panel = page.getByRole("group", { name: "Approval needed: write_file" });
     await expect(panel.getByRole("note")).toContainText("agent86's own configuration or skills");
@@ -99,7 +99,7 @@ function approvalFlows(start: () => Promise<Bridge>) {
   });
 
   test("runs a read without asking, and Ctrl+O expands the card", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "read the readme");
     await expect(card(page)).toHaveAttribute("data-state", "done");
     await expect(card(page)).toContainText("⎿ Teh quick brown fox");

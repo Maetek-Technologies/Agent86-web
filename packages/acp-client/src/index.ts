@@ -10,8 +10,20 @@ export {
 export {
   Agent86Client,
   AgentSession,
+  MAX_LOG_LINES,
+  parseUntrusted,
+  STDERR_METHOD,
+  TurnRunningError,
   type Agent86ClientOptions,
   type Clock,
+  type FileLink,
+  type LogState,
+  type Untrusted,
 } from "./agent86-client.ts";
 export * from "./session-state.ts";
-export type { InitializeResponse, StopReason, SessionUpdate } from "@agentclientprotocol/sdk";
+export type {
+  AvailableCommand,
+  InitializeResponse,
+  StopReason,
+  SessionUpdate,
+} from "@agentclientprotocol/sdk";

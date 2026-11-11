@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { mockAgent86, scriptedModel, startBridge, type Bridge } from "./bridge.ts";
+import { mockAgent86, openThread, scriptedModel, startBridge, type Bridge } from "./bridge.ts";
+
+const newThread = (page: import("@playwright/test").Page) =>
+  page
+    .getByRole("main")
+    .getByRole("button", { name: /^New thread in / })
+    .click();
 
 test.describe("handshake with the mock agent", () => {
   let bridge: Bridge;
@@ -17,11 +23,12 @@ test.describe("handshake with the mock agent", () => {
     });
 
     await page.goto(bridge.url);
-    await expect(page.getByText("What should agent86 do?")).toBeVisible();
+    await expect(page.getByText("What should agent86 work on?")).toBeVisible();
     expect(page.url()).toBe(`${bridge.origin}/`);
     await page.getByRole("button", { name: "agent86 1.0.15" }).click();
-    await expect(page.getByText("text, file links")).toBeVisible();
-    await expect(page.getByText(bridge.workspace).first()).toBeVisible();
+    await expect(page.getByRole("definition").filter({ hasText: bridge.workspace })).toBeVisible();
+    await newThread(page);
+    await expect(page.getByText("What should agent86 do?")).toBeVisible();
     // No CSP violations or other errors.
     expect(errors).toEqual([]);
     expect(bridge.stderr()).toMatch(/starting agent86 in /);
@@ -29,14 +36,14 @@ test.describe("handshake with the mock agent", () => {
 
   test("keeps working after a reload, on the session cookie", async ({ page }) => {
     await page.goto(bridge.url);
-    await expect(page.getByText("What should agent86 do?")).toBeVisible();
+    await expect(page.getByText("What should agent86 work on?")).toBeVisible();
     await page.reload();
-    await expect(page.getByText("What should agent86 do?")).toBeVisible();
+    await expect(page.getByText("What should agent86 work on?")).toBeVisible();
   });
 
   test("refuses the same link in a second browser", async ({ page, browser }) => {
     await page.goto(bridge.url);
-    await expect(page.getByText("What should agent86 do?")).toBeVisible();
+    await expect(page.getByText("What should agent86 work on?")).toBeVisible();
 
     const other = await browser.newContext();
     const otherPage = await other.newPage();
@@ -55,6 +62,7 @@ test("warns about an agent that is not agent86", async ({ page }) => {
   const bridge = await startBridge(mockAgent86(), { MOCK_AGENT86_NAME: "impostor" });
   try {
     await page.goto(bridge.url);
+    await newThread(page);
     await expect(page.getByRole("alert")).toContainText('The agent is "impostor", not agent86.');
   } finally {
     await bridge.stop();
@@ -69,7 +77,7 @@ test.describe("the real agent86", () => {
     const model = await scriptedModel();
     const bridge = await startBridge(process.env.AGENT86_BIN!, model.env);
     try {
-      await page.goto(bridge.url);
+      await openThread(page, bridge.url);
       await expect(page.getByText("What should agent86 do?")).toBeVisible();
     } finally {
       await bridge.stop();
@@ -84,6 +92,7 @@ test.describe("the real agent86", () => {
     const bridge = await startBridge(process.env.AGENT86_BIN!, env);
     try {
       await page.goto(bridge.url);
+      await newThread(page);
       const alert = page.getByRole("alert");
       await expect(alert).toContainText("No Anthropic API key found");
       await expect(alert).toContainText("agent86 keys set");

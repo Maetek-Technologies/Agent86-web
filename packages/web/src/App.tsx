@@ -1,14 +1,20 @@
-import { useState, type ReactNode } from "react";
-import { Thread } from "./thread/Thread.tsx";
-import { useAgent, type AgentState, type Step } from "./useAgent.ts";
-
-const STEPS: { step: Step; label: string }[] = [
-  { step: "signing-in", label: "Sign in to the bridge" },
-  { step: "reading-info", label: "Read the bridge's settings" },
-  { step: "connecting", label: "Start agent86 acp" },
-  { step: "initializing", label: "Initialize ACP" },
-  { step: "starting-session", label: "Start a session" },
-];
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import type { BridgeInfo } from "./api.ts";
+import { Sidebar } from "./shell/Sidebar.tsx";
+import { Tabs } from "./shell/Tabs.tsx";
+import { useBridge } from "./shell/useBridge.ts";
+import { WorkspacePicker } from "./shell/WorkspacePicker.tsx";
+import { ThreadManager } from "./threads/manager.ts";
+import { KEYS, load, save } from "./threads/storage.ts";
+import { ThreadView } from "./threads/ThreadView.tsx";
+import { TrustedProjects } from "./trust/TrustedProjects.tsx";
 
 function CopyText({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -29,34 +35,6 @@ function CopyText({ text, label }: { text: string; label: string }) {
   );
 }
 
-function Header({ state, onShowDetails }: { state: AgentState; onShowDetails: () => void }) {
-  const sessionId = state.session?.id;
-  return (
-    <header className="sticky top-0 z-10 flex h-[61px] items-center gap-3 border-b border-border bg-panel px-4">
-      <img src="/agent86-logo.png" alt="" width={36} height={36} className="rounded-full" />
-      <div className="font-mono text-lg font-bold tracking-widest">
-        AGENT 86{" "}
-        <span className="font-sans text-sm font-normal tracking-normal text-muted">web</span>
-      </div>
-      <div className="ml-auto flex min-w-0 items-center gap-3 text-xs text-muted">
-        {sessionId && (
-          <span
-            className="hidden truncate sm:inline"
-            title={`Continue at a terminal: agent86 --resume ${sessionId}`}
-          >
-            session <CopyText text={sessionId} label="session id" />
-          </span>
-        )}
-        {state.info && (
-          <button type="button" onClick={onShowDetails} className="font-mono hover:text-text">
-            agent86 {state.info.agent86.version}
-          </button>
-        )}
-      </div>
-    </header>
-  );
-}
-
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-wrap gap-x-4 py-1 text-sm">
@@ -66,14 +44,12 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Details({ state, onClose }: { state: AgentState; onClose: () => void }) {
-  const init = state.client?.init;
-  const caps = init?.agentCapabilities;
+function Details({ info, onClose }: { info: BridgeInfo; onClose: () => void }) {
   return (
     <div className="border-b border-border bg-panel-2">
       <div className="mx-auto max-w-3xl px-4 py-4">
         <div className="mb-2 flex items-center">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Connection</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">About</h2>
           <button
             type="button"
             onClick={onClose}
@@ -83,30 +59,12 @@ function Details({ state, onClose }: { state: AgentState; onClose: () => void })
           </button>
         </div>
         <dl>
-          {init && (
-            <>
-              <Row label="Agent">
-                {init.agentInfo?.name} {init.agentInfo?.version}
-              </Row>
-              <Row label="ACP protocol version">{init.protocolVersion}</Row>
-              <Row label="Reopens saved sessions">{caps?.loadSession ? "yes" : "no"}</Row>
-              <Row label="Prompt content">
-                {["text", "file links"]
-                  .concat(caps?.promptCapabilities?.image ? ["images"] : [])
-                  .concat(caps?.promptCapabilities?.audio ? ["audio"] : [])
-                  .join(", ")}
-              </Row>
-            </>
-          )}
-          {state.info && (
-            <>
-              <Row label="agent86-web">{state.info.bridge.version}</Row>
-              <Row label="agent86 command">{state.info.agent86.command}</Row>
-              <Row label="Workspaces">{state.info.roots.join(", ")}</Row>
-            </>
-          )}
-          {state.session && <Row label="Session">{state.session.id}</Row>}
+          <Row label="agent86">{info.agent86.version}</Row>
+          <Row label="agent86 command">{info.agent86.command}</Row>
+          <Row label="agent86-web">{info.bridge.version}</Row>
+          <Row label="Allowed roots">{info.roots.join(", ")}</Row>
         </dl>
+        <TrustedProjects />
         <p className="mt-3 text-xs text-muted">
           A browser interface for{" "}
           <a
@@ -124,76 +82,258 @@ function Details({ state, onClose }: { state: AgentState; onClose: () => void })
   );
 }
 
-/** agent86 refuses to start a session without a usable model, usually a missing key. */
-function ModelHelp() {
+function Header({
+  info,
+  sessionId,
+  onShowDetails,
+}: {
+  info: BridgeInfo | undefined;
+  sessionId: string | undefined;
+  onShowDetails: () => void;
+}) {
   return (
-    <div className="space-y-2 rounded border border-border bg-panel-2 p-3 text-sm">
-      <p>agent86 could not start a session. Usually its model has no API key yet. At a terminal:</p>
-      <pre className="overflow-x-auto font-mono text-xs">
-        {"agent86 keys set <provider>      # e.g. anthropic, openai, openrouter\n" +
-          "agent86                          # or: /config model, to pick a provider and model"}
-      </pre>
-      <p className="text-muted">
-        Model setup is terminal-only for now (docs/FEATURE_PARITY.md). Then choose Try again.
+    <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-panel px-4">
+      <img src="/agent86-logo.png" alt="" width={32} height={32} className="rounded-full" />
+      <div className="font-mono text-lg font-bold tracking-widest">
+        AGENT 86{" "}
+        <span className="font-sans text-sm font-normal tracking-normal text-muted">web</span>
+      </div>
+      <div className="ml-auto flex min-w-0 items-center gap-3 text-xs text-muted">
+        {sessionId && (
+          <span
+            className="hidden truncate sm:inline"
+            title={`Continue at a terminal: agent86 --resume ${sessionId}`}
+          >
+            session <CopyText text={sessionId} label="session id" />
+          </span>
+        )}
+        {info && (
+          <button type="button" onClick={onShowDetails} className="font-mono hover:text-text">
+            agent86 {info.agent86.version}
+          </button>
+        )}
+      </div>
+    </header>
+  );
+}
+
+function Home({
+  info,
+  onNew,
+  onChoose,
+}: {
+  info: BridgeInfo;
+  onNew: (workspace: string) => void;
+  onChoose: () => void;
+}) {
+  return (
+    <div className="mx-auto max-w-2xl px-4 py-16 text-center">
+      <img
+        src="/agent86-logo.png"
+        alt=""
+        width={96}
+        height={96}
+        className="mx-auto mb-4 rounded-full"
+      />
+      <h1 className="text-xl font-semibold">What should agent86 work on?</h1>
+      <p className="mt-2 text-sm text-muted">
+        Start a thread in a workspace, or reopen a saved session from the list. Sessions started at
+        a terminal are listed too.
       </p>
+      <div className="mt-6 flex flex-wrap justify-center gap-2">
+        <button
+          type="button"
+          onClick={() => onNew(info.defaultWorkspace)}
+          className="rounded bg-accent px-4 py-2 font-medium text-bg"
+        >
+          New thread in {info.defaultWorkspace.split(/[\\/]/).pop() || info.defaultWorkspace}
+        </button>
+        <button
+          type="button"
+          onClick={onChoose}
+          className="rounded border border-border px-4 py-2 hover:border-accent"
+        >
+          Choose a workspace…
+        </button>
+      </div>
     </div>
   );
 }
 
-function Connecting({ state, onRetry }: { state: AgentState; onRetry: () => void }) {
-  const index = STEPS.findIndex((s) => s.step === state.step);
+/** The signed-in app: sessions on the left, open threads in tabs (docs/UI_DESIGN.md §2). */
+function Shell({ info }: { info: BridgeInfo }) {
+  const manager = useMemo(() => new ThreadManager(), []);
+  const snapshot = useSyncExternalStore(manager.subscribe, manager.getSnapshot);
+  const [picking, setPicking] = useState(false);
+  const [details, setDetails] = useState(false);
+  const [sidebar, setSidebar] = useState(true);
+  const [refresh, setRefresh] = useState(0);
+  const [recent, setRecent] = useState<string[]>(() =>
+    load<string[]>(KEYS.workspaces, []).filter((w) =>
+      info.roots.some((root) => w === root || w.startsWith(root)),
+    ),
+  );
+
+  useEffect(() => {
+    manager.restore();
+    return () => manager.closeAll();
+  }, [manager]);
+
+  const remember = useCallback((workspace: string) => {
+    setRecent((list) => {
+      const next = [workspace, ...list.filter((w) => w !== workspace)].slice(0, 8);
+      save(KEYS.workspaces, next);
+      return next;
+    });
+  }, []);
+
+  const active = snapshot.threads.find((t) => t.meta.id === snapshot.activeId);
+  const currentWorkspace = active?.meta.workspace ?? recent[0] ?? info.defaultWorkspace;
+  const openNew = useCallback(
+    (workspace: string) => {
+      remember(workspace);
+      manager.openNew(workspace);
+    },
+    [manager, remember],
+  );
+
+  // Alt+N: a new thread in the current workspace.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        openNew(currentWorkspace);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openNew, currentWorkspace]);
+
+  const workspaces = useMemo(() => {
+    const list = [
+      ...new Set([
+        ...snapshot.threads.map((t) => t.meta.workspace),
+        ...recent,
+        info.defaultWorkspace,
+      ]),
+    ];
+    return list;
+  }, [snapshot.threads, recent, info.defaultWorkspace]);
+  const openSessionIds = useMemo(
+    () => new Set(snapshot.threads.map((t) => t.meta.sessionId).filter(Boolean) as string[]),
+    [snapshot.threads],
+  );
+
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <section className="rounded-lg border border-border bg-panel p-4">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
-          Connecting
-        </h2>
-        {state.step === "failed" ? (
-          <div role="alert" className="space-y-3">
-            <p className="text-error">{state.error}</p>
-            {state.failedAt === "starting-session" && <ModelHelp />}
+    <div className="flex h-screen flex-col">
+      <Header
+        info={info}
+        sessionId={active?.meta.sessionId}
+        onShowDetails={() => setDetails((d) => !d)}
+      />
+      {details && <Details info={info} onClose={() => setDetails(false)} />}
+      <div className="flex min-h-0 flex-1">
+        {sidebar && (
+          <Sidebar
+            workspaces={workspaces}
+            openSessionIds={openSessionIds}
+            refresh={refresh}
+            onOpen={(workspace, s) => {
+              remember(workspace);
+              manager.openSession(workspace, s.sessionId, s.title || s.sessionId);
+            }}
+            onNew={openNew}
+            onChooseWorkspace={() => setPicking(true)}
+          />
+        )}
+        <main className="flex min-w-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-stretch">
             <button
               type="button"
-              onClick={onRetry}
-              className="rounded border border-border bg-panel-2 px-3 py-1 text-sm hover:border-accent"
+              onClick={() => setSidebar((v) => !v)}
+              aria-label={sidebar ? "Hide sessions" : "Show sessions"}
+              className="border-r border-b border-border bg-panel px-2 text-muted hover:text-text"
             >
-              Try again
+              {sidebar ? "‹" : "›"}
             </button>
+            <div className="min-w-0 flex-1">
+              <Tabs
+                threads={snapshot.threads}
+                activeId={snapshot.activeId}
+                onActivate={(id) => manager.activate(id)}
+                onClose={(id) => manager.closeThread(id)}
+                onNew={() => openNew(currentWorkspace)}
+              />
+            </div>
           </div>
-        ) : (
-          <ol className="space-y-1 text-sm">
-            {STEPS.map((s, i) => (
-              <li key={s.step} className="flex items-center gap-2">
-                <span
-                  aria-hidden
-                  className={
-                    i < index ? "text-ok" : i === index ? "animate-pulse text-accent" : "text-muted"
-                  }
+          <div className="min-h-0 flex-1">
+            {snapshot.threads.length === 0 && (
+              <Home info={info} onNew={openNew} onChoose={() => setPicking(true)} />
+            )}
+            {snapshot.threads.map((thread) => {
+              const handle = manager.handle(thread.meta.id);
+              if (!handle) return null;
+              const isActive = thread.meta.id === snapshot.activeId;
+              return (
+                <div
+                  key={thread.meta.id}
+                  className={isActive ? "h-full" : "hidden"}
+                  role="tabpanel"
+                  aria-label={thread.meta.title}
                 >
-                  {i < index ? "✓" : i === index ? "●" : "○"}
-                </span>
-                <span className={i > index ? "text-muted" : ""}>{s.label}</span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-    </main>
+                  <ThreadView
+                    thread={thread}
+                    handle={handle}
+                    active={isActive}
+                    onSessionsChanged={() => setRefresh((n) => n + 1)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </main>
+      </div>
+      {picking && (
+        <WorkspacePicker
+          initial={currentWorkspace}
+          onCancel={() => setPicking(false)}
+          onChoose={(path) => {
+            setPicking(false);
+            openNew(path);
+          }}
+        />
+      )}
+    </div>
   );
 }
 
 export function App() {
-  const state = useAgent();
-  const [details, setDetails] = useState(false);
+  const bridge = useBridge();
+  if (bridge.status === "ready") return <Shell info={bridge.info} />;
   return (
     <div className="min-h-screen">
-      <Header state={state} onShowDetails={() => setDetails((d) => !d)} />
-      {details && <Details state={state} onClose={() => setDetails(false)} />}
-      {state.step === "ready" && state.session ? (
-        <Thread key={state.session.id} session={state.session} onReconnect={state.restart} />
-      ) : (
-        <Connecting state={state} onRetry={state.restart} />
-      )}
+      <Header info={undefined} sessionId={undefined} onShowDetails={() => undefined} />
+      <main className="mx-auto max-w-3xl px-4 py-10">
+        <section className="rounded-lg border border-border bg-panel p-4">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
+            Connecting
+          </h2>
+          {bridge.status === "failed" ? (
+            <div role="alert" className="space-y-3">
+              <p className="text-error">{bridge.error}</p>
+              <button
+                type="button"
+                onClick={bridge.retry}
+                className="rounded border border-border bg-panel-2 px-3 py-1 text-sm hover:border-accent"
+              >
+                Try again
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted">Signing in to the bridge…</p>
+          )}
+        </section>
+      </main>
     </div>
   );
 }

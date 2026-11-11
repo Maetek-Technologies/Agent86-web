@@ -12,6 +12,7 @@ import { listDirectories, matchFiles, walkFiles } from "./files.ts";
 import { listSessions } from "./sessions.ts";
 import { serveStatic } from "./static.ts";
 import { ThreadRegistry } from "./threads.ts";
+import { readProjectConfig, TrustStore } from "./trust.ts";
 import { realpath, resolveWorkspace, within } from "./workspaces.ts";
 
 export const BRIDGE_VERSION: string = (
@@ -48,6 +49,8 @@ export interface BridgeOptions {
   maxAgents?: number;
   /** Stop a detached, idle process after this long (default 15 minutes). */
   idleTimeoutMs?: number;
+  /** Where the bridge keeps its own state, such as trusted projects (default `~/.agent86-web`). */
+  stateDir?: string;
   log?: (line: string) => void;
 }
 
@@ -101,7 +104,12 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
   if (options.roots.length === 0) throw new Error("at least one --root is needed");
 
   const log = options.log ?? (() => undefined);
-  const agentArgs = (_workspace: string): string[] => [...options.agent86.args];
+  const trust = new TrustStore(options.stateDir);
+  /** agent86's arguments for a workspace, hashing its config file right before the spawn. */
+  const agentArgs = (workspace: string): string[] =>
+    trust.isTrusted(workspace)
+      ? [...options.agent86.args, "--trust-project"]
+      : [...options.agent86.args];
   const threads = new ThreadRegistry({
     maxAgents: options.maxAgents ?? DEFAULT_MAX_AGENTS,
     idleTimeoutMs: options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
@@ -203,6 +211,46 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
         } catch (error) {
           return json(res, 502, { error: "agent86_failed", message: (error as Error).message });
         }
+      }
+      if (url.pathname === "/api/trust") {
+        if (req.method === "GET") {
+          const workspace = url.searchParams.get("workspace");
+          if (!workspace) return json(res, 200, { projects: trust.list() });
+          const dir = resolveWorkspace(workspace, options.roots);
+          if (!dir) return json(res, 403, { error: "outside_roots" });
+          const config = readProjectConfig(dir) ?? null;
+          return json(res, 200, { config, trusted: trust.isTrusted(dir) });
+        }
+        if (req.method === "POST" || req.method === "DELETE") {
+          if (!auth.originAllowed(req) || !Auth.hasCsrfHeader(req)) {
+            return json(res, 403, { error: "origin_not_allowed" });
+          }
+          let body: { workspace?: unknown; sha256?: unknown; path?: unknown };
+          try {
+            body = JSON.parse(await readBody(req, 4096)) as typeof body;
+          } catch {
+            return json(res, 400, { error: "bad_request" });
+          }
+          if (req.method === "DELETE") {
+            if (typeof body.path !== "string") return json(res, 400, { error: "bad_request" });
+            return json(res, trust.revoke(body.path) ? 200 : 404, { projects: trust.list() });
+          }
+          const dir =
+            typeof body.workspace === "string"
+              ? resolveWorkspace(body.workspace, options.roots)
+              : undefined;
+          if (!dir) return json(res, 403, { error: "outside_roots" });
+          if (typeof body.sha256 !== "string") return json(res, 400, { error: "bad_request" });
+          if (!trust.trust(dir, body.sha256)) {
+            return json(res, 409, {
+              error: "config_changed",
+              message: "The file changed since you reviewed it. Review it again.",
+            });
+          }
+          log(`trusted ${dir}/.agent86/config.toml (sha256 ${body.sha256.slice(0, 12)}…)`);
+          return json(res, 200, { trusted: true });
+        }
+        return json(res, 405, { error: "method_not_allowed" });
       }
       if (url.pathname === "/api/files" && req.method === "GET") {
         const workspace = resolveWorkspace(url.searchParams.get("workspace") ?? "", options.roots);

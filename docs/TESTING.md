@@ -55,20 +55,26 @@ The bridge accepts `--agent86 <path-to-mock>`, so the same code path is tested. 
 
 ## 4. Flows covered end to end
 
-1. First run: token login, info shown, token removed from the URL
-2. Wrong origin, host, or expired token: refused
-3. New thread → prompt → streamed Markdown → end of turn
-4. Thinking block streams, then collapses
-5. Tool call with approval: allow → file changed on disk. Reject → file unchanged, and the model is told.
-6. Cancel during streaming, and cancel during a pending approval
-7. Mode switch to `auto` → no approval asked. `deny` → refused without asking.
-8. Model switch from the picker, including provider lists that arrive late
-9. Session list → load → transcript replayed → continue
-10. Two threads running at once
-11. Reload during a turn → reattach → no lost messages
-12. Idle reap → reopen → `session/load` restores
-13. agent86 missing or too old → explanatory page
-14. Untrusted project → banner → review → trust → process restarts with `--trust-project` → project MCP server tools appear. Edit the file → restricted again.
+Status as of M4: ✅ covered in `packages/web/e2e/` (against the mock agent and, with `AGENT86_BIN`, the real agent86), 🧪 covered by bridge or client tests only, ⬜ not yet.
+
+1. ✅ First run: token login, the token removed from the URL, the About panel
+2. ✅ Wrong origin, host, or expired token: refused (🧪 in the bridge tests; ✅ for a reused link)
+3. ✅ New thread → prompt → streamed Markdown → end of turn
+4. ✅ Thinking block streams, then collapses
+5. ✅ Tool call with approval: allow → file changed on disk. Reject → file unchanged, and the model is told.
+6. ✅ Cancel during streaming, and cancel during a pending approval
+7. ✅ Mode switch to `auto` → no approval asked. `deny` → refused without asking.
+8. ✅ Model switch from the picker (🧪 provider lists that arrive late)
+9. ✅ Session list → load → transcript replayed → continue, including a session started at the terminal with `agent86 run`
+10. ✅ Two threads running at once
+11. ✅ Reload during a turn → reattach → wait for the turn → the whole reply is there
+12. 🧪 Idle reap and the agent cap (`threads.test.ts`); ⬜ in a browser
+13. ✅ agent86 not agent86 or too old → explanatory page (🧪 too old, in the bridge tests)
+14. ✅ Untrusted project → banner → review → trust → process restarts with `--trust-project` → the project's MCP server's tool appears. Edit the file → restricted again. Revoke.
+15. ✅ `/` command menu, `@` file mentions sent as links, logs drawer, workspace picker
+16. ✅ Reload keeps the open threads
+
+The test MCP server is `packages/mock-agent/src/mock-mcp.js` (one tool, `mock_echo`; agent86 lists it as `mcp__demo__mock_echo`).
 
 ## 5. Quality gates
 

@@ -49,12 +49,12 @@ const MARKDOWN = [
 /** The tool call a prompt asks for, if any. */
 /** @param {string} prompt @returns {{ name: string; arguments: Record<string, unknown> } | undefined} */
 export function toolFor(prompt) {
-  if (/typo/i.test(prompt))
+  if (/\btypo\b/i.test(prompt))
     return {
       name: "edit_file",
       arguments: { path: "README.md", old_string: "Teh", new_string: "The" },
     };
-  if (/skill/i.test(prompt)) {
+  if (/\bskill\b/i.test(prompt)) {
     return {
       name: "write_file",
       arguments: {
@@ -63,15 +63,16 @@ export function toolFor(prompt) {
       },
     };
   }
-  if (/write/i.test(prompt))
+  if (/\bwrite\b/i.test(prompt))
     return {
       name: "write_file",
       arguments: { path: "notes.txt", content: "first line\nsecond line\n" },
     };
-  if (/command/i.test(prompt))
+  if (/\bcommand\b/i.test(prompt))
     return { name: "run_command", arguments: { command: "echo hello-from-agent86" } };
-  if (/python/i.test(prompt)) return { name: "python_exec", arguments: { code: "print(6 * 7)" } };
-  if (/read/i.test(prompt)) return { name: "read_file", arguments: { path: "README.md" } };
+  if (/\bpython\b/i.test(prompt))
+    return { name: "python_exec", arguments: { code: "print(6 * 7)" } };
+  if (/\bread\b/i.test(prompt)) return { name: "read_file", arguments: { path: "README.md" } };
   return undefined;
 }
 
