@@ -1,0 +1,18 @@
+{
+  "name": "@agent86-web/acp-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ACP v1 client pieces for agent86-web: a WebSocket transport and the agent86 handshake.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.6.0",
+    "zod": "4.6.7"
+  }
+}

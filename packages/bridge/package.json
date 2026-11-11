@@ -1,0 +1,42 @@
+{
+  "name": "agent86-web",
+  "version": "0.0.0",
+  "description": "A browser interface for agent86. Runs a local bridge between your browser and `agent86 acp`.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agent86-web": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "keywords": [
+    "agent86",
+    "acp",
+    "agent-client-protocol",
+    "ai",
+    "agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tdfleming/agent86-web.git",
+    "directory": "packages/bridge"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "tsx watch src/cli.ts --port 8686 --dev-origin http://localhost:5173 --no-open",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "8.22.2"
+  },
+  "devDependencies": {
+    "@agent86-web/mock-agent": "workspace:*",
+    "@types/ws": "8.18.2",
+    "tsx": "4.23.15"
+  }
+}
