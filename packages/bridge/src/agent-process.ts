@@ -17,6 +17,12 @@ export const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 export const STDERR_LINES = 500;
 /** The bridge's own notification carrying one line of agent86's stderr (an ACP extension method). */
 export const STDERR_METHOD = "_agent86web/stderr";
+/**
+ * The most frames a page may send in `RATE_WINDOW_MS` before its socket is closed (docs/SECURITY.md
+ * T12). A person, even pasting and pressing keys fast, sends a handful per second.
+ */
+export const MAX_FRAMES_PER_WINDOW = 500;
+export const RATE_WINDOW_MS = 10_000;
 /** Pause agent86's stdout while this many frames wait to be sent to the browser. */
 const MAX_PENDING_SENDS = 256;
 
@@ -128,8 +134,20 @@ export class AgentProcess {
     // The new page has not seen agent86's notes; replay them.
     for (const line of this.stderr) this.send(this.stderrFrame(line));
 
+    let windowStart = this.now();
+    let frames = 0;
     socket.on("message", (data, isBinary) => {
       if (this.socket !== socket) return;
+      const now = this.now();
+      if (now - windowStart > RATE_WINDOW_MS) {
+        windowStart = now;
+        frames = 0;
+      }
+      if (++frames > MAX_FRAMES_PER_WINDOW) {
+        this.note("bridge closed a connection that sent too many messages");
+        socket.close(1008, "too many messages");
+        return;
+      }
       if (isBinary) {
         socket.close(1003, "binary frames are not accepted");
         return;

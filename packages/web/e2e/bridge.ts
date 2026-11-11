@@ -13,7 +13,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const CLI = fileURLToPath(new URL("../../bridge/dist/cli.js", import.meta.url));
+// AGENT86_WEB_CLI runs the tests against an installed package (CI's package job) instead.
+const CLI =
+  process.env.AGENT86_WEB_CLI ?? fileURLToPath(new URL("../../bridge/dist/cli.js", import.meta.url));
 const MOCK = fileURLToPath(new URL("../../mock-agent/src/mock-agent86.js", import.meta.url));
 const MOCK_OPENAI = new URL("../../mock-agent/src/mock-openai.js", import.meta.url).href;
 

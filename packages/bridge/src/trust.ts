@@ -6,10 +6,10 @@
 // bytes, and passes `--trust-project` when it starts agent86 for a project whose file still
 // matches. Any change to the file needs trust again. The bridge never writes agent86's own record.
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { realpath } from "./workspaces.ts";
+import { realpath, within } from "./workspaces.ts";
 
 /** The largest project file shown for review. A config file is small; anything bigger is refused. */
 export const MAX_CONFIG_BYTES = 256 * 1024;
@@ -31,11 +31,16 @@ export function sha256(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-/** The project's agent86 config file, if it has one (read-only, for review and hashing). */
+/**
+ * The project's agent86 config file, if it has one (read-only, for review and hashing). A file that
+ * is not a regular file inside the workspace (a symlink to `~/.ssh/id_ed25519`, say) is refused, so
+ * the review never shows a file from elsewhere.
+ */
 export function readProjectConfig(workspace: string): ProjectConfig | undefined {
   let path: string;
   try {
     path = realpath(join(workspace, ".agent86", "config.toml"));
+    if (!within(path, realpath(workspace)) || !statSync(path).isFile()) return undefined;
   } catch {
     return undefined;
   }

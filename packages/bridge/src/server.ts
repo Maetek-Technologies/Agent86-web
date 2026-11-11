@@ -129,6 +129,20 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
       return agent;
     },
   });
+  /**
+   * Session lists, per workspace. Each one costs an agent86 process, so concurrent requests share
+   * one, and an answer is reused for a few seconds (docs/SECURITY.md T12).
+   */
+  const sessionLists = new Map<string, { at: number; list: ReturnType<typeof listSessions> }>();
+  const sessionsFor = (workspace: string) => {
+    const cached = sessionLists.get(workspace);
+    if (cached && Date.now() - cached.at < 3_000) return cached.list;
+    const list = listSessions(options.agent86.command, agentArgs(workspace), workspace);
+    sessionLists.set(workspace, { at: Date.now(), list });
+    // A failure is not cached.
+    list.catch(() => sessionLists.delete(workspace));
+    return list;
+  };
   /** Workspace file lists for @ mentions, briefly cached. */
   const fileCache = new Map<string, { at: number; files: string[] }>();
   // Set once the port is known (after listen); requests before that are refused.
@@ -202,11 +216,7 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
         const workspace = resolveWorkspace(url.searchParams.get("workspace") ?? "", options.roots);
         if (!workspace) return json(res, 403, { error: "outside_roots" });
         try {
-          const sessions = await listSessions(
-            options.agent86.command,
-            agentArgs(workspace),
-            workspace,
-          );
+          const sessions = await sessionsFor(workspace);
           return json(res, 200, { sessions });
         } catch (error) {
           return json(res, 502, { error: "agent86_failed", message: (error as Error).message });
