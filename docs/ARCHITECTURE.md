@@ -192,9 +192,11 @@ See [UI_DESIGN.md](UI_DESIGN.md) for screens.
 
 ## 7. Packaging
 
-- `pnpm build` builds the SPA into `packages/bridge/dist/public`, and the bridge serves it with `sirv` or similar.
-- The npm package `agent86-web` contains only the bridge plus the static assets. Its only runtime dependencies are `ws` and a small static server.
-- `npx agent86-web` works with Node 20 or newer. agent86 itself is installed separately (`npm install -g agent86`). The bridge explains how to install it if it is missing.
+- `pnpm build` builds the SPA, then the bridge (`packages/bridge/scripts/build.mjs`), which copies the SPA into `dist/public` without source maps. The bridge serves it itself (`static.ts`).
+- The npm package `agent86-web` holds `dist`, its README, and the LICENSE. Its only runtime dependency is `ws`. The 0.1.0 tarball is about 333 KB.
+- `scripts/check-dist.mjs` runs before publishing and in CI's package job. It refuses a package without the web client, with a source map, without the `#!/usr/bin/env node` line, or with an inline script, style, or handler that the CSP would block.
+- `pnpm pack` (not `npm pack`) makes the tarball, because it rewrites the `workspace:` dependency specs. The release workflow publishes that exact tarball with `npm publish --provenance`.
+- `npx agent86-web` works with Node 20.19 or newer. agent86 is installed separately (`npm install -g agent86`), and the bridge explains how if it is missing.
 
 ## 8. Phase 2 seams
 

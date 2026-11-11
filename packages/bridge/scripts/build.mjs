@@ -18,7 +18,11 @@ execFileSync(process.execPath, [tsc, "-p", "tsconfig.build.json"], {
 chmodSync(join(dist, "cli.js"), 0o755);
 
 if (existsSync(web)) {
-  cpSync(web, join(dist, "public"), { recursive: true });
+  // Source maps stay out of the package: they are large and point at sources it does not ship.
+  cpSync(web, join(dist, "public"), {
+    recursive: true,
+    filter: (source) => !source.endsWith(".map"),
+  });
 } else {
   console.warn(
     "warning: packages/web/dist not found; run `pnpm --filter @agent86-web/web build` first",

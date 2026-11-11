@@ -68,7 +68,7 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 | `/tools` | slash command | Command | ✅ |
 | `/help` | — | Local help panel listing the available commands | ✅ |
 | `/skills`, `/memory`, `/limits` | not in agent86's ACP set | — | ⛔ (wishlist) |
-| `/update`, update notice | not over ACP | The bridge reports the agent86 version; a newer-version notice is optional ([OPEN_QUESTIONS.md](OPEN_QUESTIONS.md)) | 🟡 |
+| `/update`, update notice | not over ACP | The bridge checks npm daily for newer agent86 and agent86-web releases; the header and About show a notice with the install command | ✅ M5 (installing is left to you) |
 | `/exit` | — | Close the tab or thread | ✅ |
 
 ## Status line

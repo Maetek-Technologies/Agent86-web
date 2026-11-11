@@ -1,0 +1,57 @@
+name: Release
+
+# Push a tag v<version> matching packages/bridge/package.json to publish agent86-web to npm.
+# Needs the repository secret NPM_TOKEN (an npm automation or granular token that can publish
+# agent86-web). Release notes come from docs/releases/<tag>.md.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - name: The tag matches the package version, and has release notes
+        run: |
+          version=$(node -p "require('./packages/bridge/package.json').version")
+          test "$GITHUB_REF_NAME" = "v$version" || { echo "tag $GITHUB_REF_NAME does not match version $version"; exit 1; }
+          test -f "docs/releases/$GITHUB_REF_NAME.md" || { echo "docs/releases/$GITHUB_REF_NAME.md is missing"; exit 1; }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: node packages/bridge/scripts/check-dist.mjs
+      # pnpm pack rewrites workspace: dependency specs; the tarball is what gets published.
+      - run: pnpm --filter agent86-web pack --pack-destination "$RUNNER_TEMP/pack"
+      - name: Smoke-test the tarball
+        run: |
+          mkdir "$RUNNER_TEMP/install" && cd "$RUNNER_TEMP/install"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$RUNNER_TEMP"/pack/agent86-web-*.tgz
+          npx agent86-web --version
+      - name: Publish to npm
+        run: npm publish "$RUNNER_TEMP"/pack/agent86-web-*.tgz --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Create the GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --title "agent86-web $GITHUB_REF_NAME" --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+        env:
+          GH_TOKEN: ${{ github.token }}

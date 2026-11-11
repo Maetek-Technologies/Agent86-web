@@ -1,14 +1,17 @@
 {
   "name": "agent86-web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A browser interface for agent86. Runs a local bridge between your browser and `agent86 acp`.",
   "license": "MIT",
+  "author": "Maetek Technologies",
   "type": "module",
   "bin": {
     "agent86-web": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20.19"
@@ -20,16 +23,25 @@
     "ai",
     "agent"
   ],
+  "homepage": "https://github.com/Maetek-Technologies/Agent86-web#readme",
+  "bugs": {
+    "url": "https://github.com/Maetek-Technologies/Agent86-web/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tdfleming/agent86-web.git",
+    "url": "git+https://github.com/Maetek-Technologies/Agent86-web.git",
     "directory": "packages/bridge"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "tsx watch src/cli.ts --port 8686 --dev-origin http://localhost:5173 --no-open",
     "start": "node dist/cli.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "node scripts/check-dist.mjs"
   },
   "dependencies": {
     "ws": "8.22.2"

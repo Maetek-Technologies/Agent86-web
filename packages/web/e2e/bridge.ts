@@ -13,7 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const CLI = fileURLToPath(new URL("../../bridge/dist/cli.js", import.meta.url));
+// AGENT86_WEB_CLI runs the tests against an installed package (CI's package job) instead.
+const CLI =
+  process.env.AGENT86_WEB_CLI ??
+  fileURLToPath(new URL("../../bridge/dist/cli.js", import.meta.url));
 const MOCK = fileURLToPath(new URL("../../mock-agent/src/mock-agent86.js", import.meta.url));
 const MOCK_OPENAI = new URL("../../mock-agent/src/mock-openai.js", import.meta.url).href;
 
@@ -57,7 +60,10 @@ export async function startBridge(
   const child: ChildProcess = spawn(
     process.execPath,
     [CLI, "--root", workspace, "--agent86", agent86, "--no-open", ...extraArgs],
-    { env: { ...process.env, MOCK_AGENT86_DB: db, ...env }, stdio: ["ignore", "pipe", "pipe"] },
+    {
+      env: { ...process.env, AGENT86_WEB_NO_UPDATE_CHECK: "1", MOCK_AGENT86_DB: db, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
   );
   let stdout = "";
   let stderr = "";

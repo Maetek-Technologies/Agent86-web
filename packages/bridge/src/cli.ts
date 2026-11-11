@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { Agent86Error, detectAgent86 } from "./agent86.ts";
 import { parseDuration } from "./duration.ts";
+import { updateCheckDisabled } from "./updates.ts";
 import { BRIDGE_VERSION, startBridge } from "./server.ts";
 import { realpath } from "./workspaces.ts";
 
@@ -24,6 +25,8 @@ Options:
   --max-agents <n>     The most agent86 processes running at once (default: 8)
   --idle-timeout <d>   Stop an agent86 with no tab and no turn after this long: 90s, 15m, 1h
                        (default: 15m)
+  --no-update-check    Don't check npm for newer agent86 or agent86-web releases
+                       (also AGENT86_WEB_NO_UPDATE_CHECK=1)
   --dev-origin <url>   Also allow this origin (the Vite dev server, for development)
   --static <dir>       Serve the web client from this directory
   -h, --help           Show this help
@@ -59,6 +62,7 @@ async function main(): Promise<number> {
         "no-open": { type: "boolean", default: false },
         "max-agents": { type: "string" },
         "idle-timeout": { type: "string" },
+        "no-update-check": { type: "boolean", default: false },
         "dev-origin": { type: "string" },
         static: { type: "string" },
         help: { type: "boolean", short: "h", default: false },
@@ -132,6 +136,7 @@ async function main(): Promise<number> {
     devOrigin: values["dev-origin"],
     maxAgents,
     idleTimeoutMs,
+    updateCheck: !values["no-update-check"] && !updateCheckDisabled() && !values["dev-origin"],
     log: (line) => process.stderr.write(`${line}\n`),
   });
 

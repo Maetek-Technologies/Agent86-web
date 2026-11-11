@@ -60,12 +60,26 @@ The bridge does not weaken any agent86 protection, and does not duplicate them e
 
 ## 6. Checklist for M5 review
 
-- [ ] Every route and the WebSocket check `Host`, cookie, and (for WebSocket and POST) `Origin`
-- [ ] Tests: wrong Origin, wrong Host, missing cookie, reused token, expired token
-- [ ] `cwd` jail tests with `..`, symlinks, and case-insensitive file systems (macOS, Windows)
-- [ ] `mcpServers` and capabilities are filtered (tested)
-- [ ] CSP header present, and no inline scripts in the build
-- [ ] Markdown renderer XSS test corpus
-- [ ] Message bodies are not logged by default
-- [x] Trust: no record without the dialog, a stale hash is refused, a changed file runs restricted, revoke works, and the records file has mode `0600` (bridge `trust.test.ts`, e2e `trust.spec.ts`)
+Reviewed 2026-11-11 against `packages/bridge` at M5. Each item names where it is tested.
+
+- [x] Every route checks `Host` (all HTTP and the WebSocket), the session cookie (every `/api/*` route but login, and the WebSocket), and `Origin` plus the CSRF header (login, trust changes, and the WebSocket). Static files need only `Host`: they are the public app. A cross-site `GET /api/*` carries no cookie (`SameSite=Strict`) and cannot read the answer (no CORS). (`server.test.ts`, `trust.test.ts`)
+- [x] Tests: wrong Origin, wrong Host, missing cookie, reused token (`server.test.ts`, e2e `handshake.spec.ts`), expired token (`auth.test.ts`)
+- [x] `cwd` jail: `..` (`server.test.ts`, `policy.test.ts`), symlinks out of a root, refused as a workspace, a session `cwd`, a listed folder, a walked file, or the project config (`security.test.ts`, POSIX only, since Windows runners cannot always create links). Case-insensitive file systems: paths are compared after `realpath`, and a mismatch refuses, so the check fails closed.
+- [x] `mcpServers` and capabilities are filtered (`policy.test.ts`, `server.test.ts`)
+- [x] CSP header present (`server.test.ts`), no inline script, style, or handler in the built page (`scripts/check-dist.mjs`, run in CI's package job and before publishing), and no CSP errors in the browser (e2e `handshake.spec.ts`)
+- [x] Markdown renderer XSS test corpus (web `markdown.test.tsx`, `blocks.test.ts`)
+- [x] Message bodies are not logged: the bridge logs agent86's stderr, process starts and stops, and the reason it refused a message, never the message (`security.test.ts`)
+- [x] Trust: no record without the dialog, a stale hash is refused, a changed file runs restricted, revoke works, and the records file has mode `0600` (`trust.test.ts`, e2e `trust.spec.ts`)
 - [x] Requests from agent86 with no page attached are declined (`threads.test.ts`)
+
+### Findings fixed in the review
+
+1. **A project config that is a symlink was readable.** `.agent86/config.toml` linking to a file outside the workspace (a key, say) would have been read and shown in the trust dialog, to the user's own browser only. Now a config that is not a regular file inside the workspace is ignored (`trust.ts`, `security.test.ts`).
+2. **No message rate limit (T12).** A socket that sends more than 500 frames in 10 seconds is now closed with code 1008.
+3. **Session lists were not bounded (T12).** Each `GET /api/sessions` started an agent86 process. Concurrent requests for a workspace now share one, and an answer is reused for 3 seconds.
+
+### Residual risks, accepted for v0.1
+
+- Anyone who can read the printed link within five minutes, or who has the cookie, controls the agent: the token is the authentication (T5, T6).
+- On Windows, a bare `--agent86` name is started through the shell (npm's `.cmd` shim), so an argument passed with `--agent-arg` must not contain spaces. These arguments come from the user's own command line.
+- The bridge trusts agent86 to be agent86. It checks the version, but whatever binary `--agent86` names runs as the user.

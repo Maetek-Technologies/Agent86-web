@@ -113,7 +113,7 @@ agent86's stderr notes for this thread's process: MCP startup, ignored untrusted
 - **Type:** a system UI font for prose. A monospace font for code, tool cards, the input border label, and the wordmark accent.
 - **Colour:** neutral greys. One accent drawn from the agent86 logo. Semantic colours for diff additions and removals, errors, and approval (amber).
 - **Motion:** minimal. A spinner and a gentle stream-in, both disabled under `prefers-reduced-motion`.
-- **Brand assets:** the agent86 name, logo, and detective mascot are used with permission. Use the mascot in the top bar, the empty states, and the favicon. Credit agent86 and Maetek Technologies in the About dialog.
+- **Brand assets:** agent86-web is a Maetek Technologies project and uses the agent86 name, logo, and detective mascot. Use the mascot in the top bar, the empty states, and the favicon. Credit agent86 and Maetek Technologies in the About dialog.
 
 ## 7. Component inventory
 

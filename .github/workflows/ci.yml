@@ -75,3 +75,30 @@ jobs:
           name: playwright-report-node${{ matrix.node }}
           path: packages/web/playwright-report
           retention-days: 7
+
+  package:
+    # Pack agent86-web as it would be published, install the tarball into an empty project, and run
+    # the browser tests against the installed command, on the oldest supported Node.
+    name: package (pack, install, run on node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: node packages/bridge/scripts/check-dist.mjs
+      - run: pnpm --filter agent86-web pack --pack-destination "$RUNNER_TEMP/pack"
+      - name: Install the tarball into an empty project
+        run: |
+          mkdir "$RUNNER_TEMP/install" && cd "$RUNNER_TEMP/install"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$RUNNER_TEMP"/pack/agent86-web-*.tgz
+          npx agent86-web --version
+      - run: pnpm --filter @agent86-web/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @agent86-web/web exec playwright test e2e/handshake.spec.ts e2e/chat.spec.ts
+        env:
+          AGENT86_WEB_CLI: ${{ runner.temp }}/install/node_modules/agent86-web/dist/cli.js
