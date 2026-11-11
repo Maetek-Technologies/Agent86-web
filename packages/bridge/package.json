@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "A browser interface for agent86. Runs a local bridge between your browser and `agent86 acp`.",
   "license": "MIT",
+  "author": "Maetek Technologies",
   "type": "module",
   "bin": {
     "agent86-web": "./dist/cli.js"

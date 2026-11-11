@@ -11,10 +11,10 @@ Each question has a recommendation. Settle each one before the milestone listed 
 **Decided 2026-11-10, built in M4:** the browser may trust a project, through a "Trust this project" confirmation. The design is in [ADR 0004](adr/0004-project-trust-from-the-browser.md): the dialog shows the project's `.agent86/config.toml`, the bridge remembers the decision by the file's SHA-256 hash and asks again when the file changes, and trusted threads are started with `--trust-project`. The banner appears when agent86's stderr says it ignored settings that need trust.
 
 ### Q7. Branding
-**Decided 2026-11-10:** agent86-web may use the agent86 name, logo, and mascot. Credit agent86 and Maetek Technologies in the README and the About dialog, and link to the upstream repository.
+**Decided 2026-11-10:** agent86-web may use the agent86 name, logo, and mascot. **Updated 2026-11-11:** agent86-web is now a Maetek Technologies project (the repository moved to `Maetek-Technologies/Agent86-web`), so the READMEs and the About panel credit it to Maetek Technologies directly.
 
 ### Q8. License for this repository
-**Decided 2026-11-10:** MIT, matching agent86. See [LICENSE](../LICENSE).
+**Decided 2026-11-10:** MIT, matching agent86. **Updated 2026-11-11:** copyright Maetek Technologies, as for agent86. See [LICENSE](../LICENSE).
 
 ### Q9. Remote access in phase 1
 **Decided 2026-11-10:** SSH port forwarding only. The bridge stays bound to loopback, and the README documents `ssh -L`. Real remote access waits for phase 2's authentication.

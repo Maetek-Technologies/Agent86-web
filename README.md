@@ -98,7 +98,7 @@ Open the printed URL (with its `#token=…`) on the device as `http://127.0.0.1:
 
 ## Credits
 
-agent86 and its name, logo, and mascot belong to [Maetek Technologies](https://github.com/Maetek-Technologies/agent86) and are used with permission. agent86-web is a separate client for it.
+agent86-web is a [Maetek Technologies](https://github.com/Maetek-Technologies) project, a browser interface for [agent86](https://github.com/Maetek-Technologies/agent86). agent86 and its name, logo, and mascot belong to Maetek Technologies.
 
 ## License
 

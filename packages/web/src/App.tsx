@@ -98,7 +98,7 @@ function Details({ info, onClose }: { info: BridgeInfo; onClose: () => void }) {
         <UpdateNotes info={info} />
         <TrustedProjects />
         <p className="mt-3 text-xs text-muted">
-          A browser interface for{" "}
+          agent86-web, a browser interface for{" "}
           <a
             className="underline"
             href="https://github.com/Maetek-Technologies/agent86"
@@ -106,8 +106,8 @@ function Details({ info, onClose }: { info: BridgeInfo; onClose: () => void }) {
             rel="noopener noreferrer"
           >
             agent86
-          </a>{" "}
-          by Maetek Technologies.
+          </a>
+          . © 2026 Maetek Technologies.
         </p>
       </div>
     </div>

@@ -84,4 +84,4 @@ agent86's own approval gate, sandbox, and guardrails apply unchanged. The threat
 
 ## License
 
-MIT. agent86-web is a separate client for agent86. agent86 and its name, logo, and mascot belong to Maetek Technologies and are used with permission.
+MIT, © 2026 Maetek Technologies. agent86-web is a Maetek Technologies project, a browser interface for agent86. agent86 and its name, logo, and mascot belong to Maetek Technologies.
