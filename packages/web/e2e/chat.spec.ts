@@ -97,7 +97,7 @@ test.describe("chat with the mock agent", () => {
   chatFlows(async () => {
     record = recordFile();
     return startBridge(mockAgent86(), { MOCK_AGENT86_RECORD: record });
-  }, /agent86 trace show -s mock-session-1/);
+  }, /agent86 trace show -s mock-[0-9a-f]+/);
 });
 
 // Against the real binary, which calls a scripted OpenAI-compatible server instead of a model.

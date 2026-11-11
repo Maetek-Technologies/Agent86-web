@@ -78,9 +78,10 @@ export function toolFor(prompt) {
 /**
  * The pieces of one streamed reply.
  * @param {string} prompt
+ * @param {string} [model]
  * @returns {{ reasoning: string[]; content: string[]; delayMs: number }}
  */
-export function script(prompt) {
+export function script(prompt, model = "test-model") {
   if (/slow/i.test(prompt)) {
     return {
       reasoning: ["Taking", " my", " time."],
@@ -95,7 +96,9 @@ export function script(prompt) {
       delayMs: 5,
     };
   }
-  const reply = `Hello from the mock model. You said: ${prompt}`;
+  // A model other than the default says which it is, so a test can see a switch take effect.
+  const who = model === "test-model" ? "" : `[${model}] `;
+  const reply = `${who}Hello from the mock model. You said: ${prompt}`;
   return {
     reasoning: ["Let", " me", " think", " about", " that."],
     content: reply.match(/\S+\s*/g) ?? [reply],
@@ -110,7 +113,15 @@ export function createMockOpenAI() {
   return createServer(async (req, res) => {
     if (req.method === "GET" && req.url?.endsWith("/models")) {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ object: "list", data: [{ id: "test-model", object: "model" }] }));
+      res.end(
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "test-model", object: "model" },
+            { id: "cheap-model", object: "model" },
+          ],
+        }),
+      );
       return;
     }
     if (req.method !== "POST" || !req.url?.endsWith("/chat/completions")) {
@@ -150,7 +161,7 @@ export function createMockOpenAI() {
           }
         : tool
           ? { reasoning: ["I", " will", " use", ` ${tool.name}.`], content: [], delayMs: 5 }
-          : script(prompt);
+          : script(prompt, String(request.model ?? "test-model"));
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
     let aborted = false;
     res.on("close", () => (aborted = true));

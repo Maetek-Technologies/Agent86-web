@@ -1,14 +1,18 @@
 // The bridge's HTTP and WebSocket server (docs/ARCHITECTURE.md §3.2).
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { dirname } from "node:path";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { WebSocketServer } from "ws";
 import { AgentProcess, MAX_MESSAGE_BYTES } from "./agent-process.ts";
 import { MIN_AGENT86_VERSION } from "./agent86.ts";
 import { Auth } from "./auth.ts";
+import { listDirectories, matchFiles, walkFiles } from "./files.ts";
+import { listSessions } from "./sessions.ts";
 import { serveStatic } from "./static.ts";
-import { realpath, resolveWorkspace } from "./workspaces.ts";
+import { ThreadRegistry } from "./threads.ts";
+import { realpath, resolveWorkspace, within } from "./workspaces.ts";
 
 export const BRIDGE_VERSION: string = (
   JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -40,8 +44,15 @@ export interface BridgeOptions {
   publicDir: string;
   /** An extra allowed origin, for the Vite dev server. */
   devOrigin?: string | undefined;
+  /** The most agent86 processes alive at once (default 8). */
+  maxAgents?: number;
+  /** Stop a detached, idle process after this long (default 15 minutes). */
+  idleTimeoutMs?: number;
   log?: (line: string) => void;
 }
+
+export const DEFAULT_MAX_AGENTS = 8;
+export const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 export interface RunningBridge {
   port: number;
@@ -90,7 +101,28 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
   if (options.roots.length === 0) throw new Error("at least one --root is needed");
 
   const log = options.log ?? (() => undefined);
-  const processes = new Set<AgentProcess>();
+  const agentArgs = (_workspace: string): string[] => [...options.agent86.args];
+  const threads = new ThreadRegistry({
+    maxAgents: options.maxAgents ?? DEFAULT_MAX_AGENTS,
+    idleTimeoutMs: options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
+    log,
+    spawn: (thread, workspace) => {
+      log(`thread ${thread}: starting agent86 in ${workspace}`);
+      const agent = new AgentProcess({
+        command: options.agent86.command,
+        args: agentArgs(workspace),
+        workspace,
+        realpath,
+        log: (line) => log(`thread ${thread}: ${line}`),
+      });
+      void agent.exited.then((code) =>
+        log(`thread ${thread}: agent86 exited (status ${code ?? "unknown"})`),
+      );
+      return agent;
+    },
+  });
+  /** Workspace file lists for @ mentions, briefly cached. */
+  const fileCache = new Map<string, { at: number; files: string[] }>();
   // Set once the port is known (after listen); requests before that are refused.
   let auth: Auth | undefined = undefined;
 
@@ -141,6 +173,47 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
           defaultWorkspace: options.roots[0],
         });
       }
+      if (url.pathname === "/api/workspaces" && req.method === "GET") {
+        const requested = url.searchParams.get("path");
+        if (!requested) {
+          return json(res, 200, {
+            path: null,
+            parent: null,
+            dirs: options.roots.map((root) => ({ name: root, path: root })),
+          });
+        }
+        const dir = resolveWorkspace(requested, options.roots);
+        if (!dir) return json(res, 403, { error: "outside_roots" });
+        const parentDir = dirname(dir);
+        const parent = options.roots.some((root) => root !== dir && within(parentDir, root))
+          ? parentDir
+          : null;
+        return json(res, 200, { path: dir, parent, dirs: listDirectories(dir) });
+      }
+      if (url.pathname === "/api/sessions" && req.method === "GET") {
+        const workspace = resolveWorkspace(url.searchParams.get("workspace") ?? "", options.roots);
+        if (!workspace) return json(res, 403, { error: "outside_roots" });
+        try {
+          const sessions = await listSessions(
+            options.agent86.command,
+            agentArgs(workspace),
+            workspace,
+          );
+          return json(res, 200, { sessions });
+        } catch (error) {
+          return json(res, 502, { error: "agent86_failed", message: (error as Error).message });
+        }
+      }
+      if (url.pathname === "/api/files" && req.method === "GET") {
+        const workspace = resolveWorkspace(url.searchParams.get("workspace") ?? "", options.roots);
+        if (!workspace) return json(res, 403, { error: "outside_roots" });
+        let cached = fileCache.get(workspace);
+        if (!cached || Date.now() - cached.at > 10_000) {
+          cached = { at: Date.now(), files: walkFiles(workspace) };
+          fileCache.set(workspace, cached);
+        }
+        return json(res, 200, { files: matchFiles(cached.files, url.searchParams.get("q") ?? "") });
+      }
       return json(res, 404, { error: "not_found" });
     }
 
@@ -165,22 +238,10 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
     const workspace = resolveWorkspace(requested, options.roots);
     if (!workspace) return refuseUpgrade(socket, 403, "Forbidden");
 
+    const fresh = url.searchParams.get("fresh") === "1";
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const thread = match[1]!;
-      log(`thread ${thread}: starting agent86 in ${workspace}`);
-      const agent = new AgentProcess({
-        command: options.agent86.command,
-        args: options.agent86.args,
-        workspace,
-        realpath,
-        log: (line) => log(`thread ${thread}: ${line}`),
-      });
-      processes.add(agent);
-      void agent.exited.then((code) => {
-        processes.delete(agent);
-        log(`thread ${thread}: agent86 exited (status ${code ?? "unknown"})`);
-      });
-      agent.attach(ws);
+      const result = threads.attach(match[1]!, workspace, ws, fresh);
+      if (!result.ok) ws.close(1013, result.reason.slice(0, 120));
     });
   });
 
@@ -199,8 +260,7 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
     port,
     url: `${base}/#token=${auth.launchToken}`,
     async close() {
-      for (const agent of processes) agent.stop();
-      await Promise.all([...processes].map((agent) => agent.exited));
+      await threads.stopAll();
       for (const client of wss.clients) client.terminate();
       wss.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));

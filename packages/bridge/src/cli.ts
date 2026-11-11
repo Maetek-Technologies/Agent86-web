@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { Agent86Error, detectAgent86 } from "./agent86.ts";
+import { parseDuration } from "./duration.ts";
 import { BRIDGE_VERSION, startBridge } from "./server.ts";
 import { realpath } from "./workspaces.ts";
 
@@ -20,6 +21,9 @@ Options:
   --agent-arg=<arg>    An argument for agent86, placed before \`acp\` (repeatable),
                        e.g. --agent-arg=--model --agent-arg=openrouter:<model>
   --no-open            Print the URL instead of opening the browser
+  --max-agents <n>     The most agent86 processes running at once (default: 8)
+  --idle-timeout <d>   Stop an agent86 with no tab and no turn after this long: 90s, 15m, 1h
+                       (default: 15m)
   --dev-origin <url>   Also allow this origin (the Vite dev server, for development)
   --static <dir>       Serve the web client from this directory
   -h, --help           Show this help
@@ -53,6 +57,8 @@ async function main(): Promise<number> {
         agent86: { type: "string", default: "agent86" },
         "agent-arg": { type: "string", multiple: true },
         "no-open": { type: "boolean", default: false },
+        "max-agents": { type: "string" },
+        "idle-timeout": { type: "string" },
         "dev-origin": { type: "string" },
         static: { type: "string" },
         help: { type: "boolean", short: "h", default: false },
@@ -78,6 +84,18 @@ async function main(): Promise<number> {
   const port = values.port === undefined ? 0 : Number(values.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     process.stderr.write(`agent86-web: --port must be a number from 0 to 65535\n`);
+    return 2;
+  }
+
+  const maxAgents = values["max-agents"] === undefined ? undefined : Number(values["max-agents"]);
+  if (maxAgents !== undefined && (!Number.isInteger(maxAgents) || maxAgents < 1)) {
+    process.stderr.write("agent86-web: --max-agents must be a whole number of at least 1\n");
+    return 2;
+  }
+  const idleTimeoutMs =
+    values["idle-timeout"] === undefined ? undefined : parseDuration(values["idle-timeout"]);
+  if (idleTimeoutMs === null) {
+    process.stderr.write("agent86-web: --idle-timeout must look like 90s, 15m, or 1h\n");
     return 2;
   }
 
@@ -112,6 +130,8 @@ async function main(): Promise<number> {
     agent86: { command: values.agent86, version, args: values["agent-arg"] ?? [] },
     publicDir,
     devOrigin: values["dev-origin"],
+    maxAgents,
+    idleTimeoutMs,
     log: (line) => process.stderr.write(`${line}\n`),
   });
 
