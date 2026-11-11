@@ -23,7 +23,9 @@ The aim is to test the protocol, the bridge's security, and the UI without needi
 
 As built in M2, both pick a script from keywords in the prompt, and they share the scripts, so a test reads the same against either: `fail` gives an HTTP 400 model error, `slow` gives a long reply for cancel tests, `markdown` gives a reply exercising GFM and the XSS cases, and anything else gives a short reasoning trace and `Hello from the mock model. You said: <text>`. The mock agent also answers `/cost` without a model, as agent86 does.
 
-Tool calls and approvals (M3) need richer scripts. The plan is scenario files:
+As built in M3, both also run tool calls: `typo` (edit_file on README.md), `write` (write_file), `command` (run_command), `python` (python_exec), `read` (read_file, no approval), and `skill` (write_file into `.agent86/skills`, which agent86 warns about). The mock agent sends permission requests in agent86's exact text formats and really edits the file once allowed. `e2e/approvals.spec.ts` runs the approval flows against both.
+
+If the scripts outgrow keywords, the plan is scenario files:
 
 ```yaml
 # scenarios/edit-with-approval.yaml

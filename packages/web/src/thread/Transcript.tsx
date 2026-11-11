@@ -3,12 +3,12 @@ import type {
   Entry,
   NoticeEntry,
   ThoughtEntry,
-  ToolEntry,
   TurnEndEntry,
   UserEntry,
 } from "@agent86-web/acp-client";
 import { memo, useState } from "react";
 import { Markdown } from "../markdown/Markdown.tsx";
+import { ToolCard } from "../tools/ToolCard.tsx";
 import { formatChars, formatDuration, useElapsed } from "./useElapsed.ts";
 
 function UserMessage({ entry }: { entry: UserEntry }) {
@@ -67,51 +67,6 @@ function ThinkingBlock({ entry }: { entry: ThoughtEntry }) {
   );
 }
 
-const STATUS_ICON: Record<ToolEntry["status"], string> = {
-  pending: "○",
-  in_progress: "◐",
-  completed: "✓",
-  failed: "✗",
-};
-
-/** A compact tool line. The full cards, with arguments and approvals, arrive in M3. */
-function ToolLine({ entry }: { entry: ToolEntry }) {
-  const [open, setOpen] = useState(false);
-  const firstLine = entry.output.split("\n")[0] ?? "";
-  return (
-    <div className="font-mono text-sm">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="flex w-full min-w-0 items-baseline gap-2 text-left"
-      >
-        <span
-          className={
-            entry.status === "failed"
-              ? "text-error"
-              : entry.status === "completed"
-                ? "text-ok"
-                : "text-accent"
-          }
-        >
-          {STATUS_ICON[entry.status]}
-        </span>
-        <span className="shrink-0 font-semibold">{entry.name ?? entry.title}</span>
-        {entry.name && entry.title !== entry.name && (
-          <span className="truncate text-muted">{entry.title}</span>
-        )}
-      </button>
-      {firstLine && !open && <div className="truncate pl-6 text-muted">⎿ {firstLine}</div>}
-      {open && entry.output && (
-        <pre className="mt-1 ml-6 max-h-80 overflow-auto rounded border border-border bg-panel-2 p-2 text-xs whitespace-pre-wrap">
-          {entry.output}
-        </pre>
-      )}
-    </div>
-  );
-}
-
 function Notice({ entry }: { entry: NoticeEntry }) {
   const color =
     entry.level === "error" ? "text-error" : entry.level === "warning" ? "text-warn" : "text-muted";
@@ -142,7 +97,7 @@ function EntryView({ entry }: { entry: Entry }) {
     case "thought":
       return <ThinkingBlock entry={entry} />;
     case "tool":
-      return <ToolLine entry={entry} />;
+      return <ToolCard entry={entry} />;
     case "notice":
       return <Notice entry={entry} />;
     case "turn-end":

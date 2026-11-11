@@ -4,7 +4,7 @@ A browser interface for [agent86](https://github.com/Maetek-Technologies/agent86
 
 agent86-web gives you agent86's conversation, tool calls, approvals, and saved sessions in a browser tab. The agent itself does not change. agent86 still runs on your machine, with your config, keys, sandbox, memory, and sessions. The website is a different way to drive it.
 
-> **Status: milestone M2 (chat) done.** You can hold a conversation with agent86 in the browser: replies and reasoning stream in as Markdown, Esc or Stop cancels a turn, and model errors show with the trace hint. Tool-call cards and approvals arrive in M3; until then agent86's permission requests are declined. Nothing is published to npm yet. The plan is in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
+> **Status: milestone M3 (tools and approvals) done.** Hold a conversation with agent86 in the browser, see each tool call as a card, and approve or reject changes with the diff or command in view. Sessions, model and mode pickers, and several threads arrive in M4. Nothing is published to npm yet. The plan is in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
 
 ## How it will work
 

@@ -1,7 +1,8 @@
 import { phase, type AgentSession } from "@agent86-web/acp-client";
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { PhaseLine } from "./PhaseLine.tsx";
 import { PromptInput } from "./PromptInput.tsx";
+import { ThreadContext } from "./ThreadContext.ts";
 import { Transcript } from "./Transcript.tsx";
 
 /** Keep the view pinned to the bottom while new output arrives, unless the user scrolled up. */
@@ -29,19 +30,53 @@ export function Thread({
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
   const current = phase(state);
+  const [expandAll, setExpandAll] = useState(false);
   useStickToBottom(state.entries);
+  const pending = state.permissions[0];
 
-  // Esc interrupts the turn, as in the terminal.
+  // Keys, as in the terminal: Esc rejects a waiting approval, else interrupts the turn; a number
+  // picks an approval option (when not typing); Ctrl+O expands every tool card.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && state.turn.running && !event.isComposing) {
+      if (event.isComposing) return;
+      const target = event.target as HTMLElement | null;
+      const editing = !!target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT");
+      if (event.key === "Escape") {
+        if (pending) {
+          event.preventDefault();
+          session.reject(pending.id);
+        } else if (state.turn.running) {
+          event.preventDefault();
+          void session.cancel();
+        }
+        return;
+      }
+      if (event.key.toLowerCase() === "o" && event.ctrlKey && !event.altKey && !event.metaKey) {
         event.preventDefault();
-        void session.cancel();
+        setExpandAll((value) => !value);
+        return;
+      }
+      if (pending && !editing && /^[1-9]$/.test(event.key) && !event.ctrlKey && !event.metaKey) {
+        const option = pending.options[Number(event.key) - 1];
+        if (option) {
+          event.preventDefault();
+          session.respond(pending.id, option.optionId);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [session, state.turn.running]);
+  }, [session, state.turn.running, pending]);
+
+  // The tab title says when agent86 is waiting on you.
+  useEffect(() => {
+    document.title = pending ? "(!) Approval needed · agent86 web" : "agent86 web";
+  }, [pending]);
+
+  const context = useMemo(
+    () => ({ session, permissions: state.permissions, expandAll }),
+    [session, state.permissions, expandAll],
+  );
 
   return (
     <div className="flex min-h-[calc(100vh-61px)] flex-col">
@@ -56,7 +91,9 @@ export function Thread({
             </p>
           </div>
         ) : (
-          <Transcript entries={state.entries} />
+          <ThreadContext.Provider value={context}>
+            <Transcript entries={state.entries} />
+          </ThreadContext.Provider>
         )}
       </div>
       <div className="sticky bottom-0 border-t border-border bg-bg/95 backdrop-blur">

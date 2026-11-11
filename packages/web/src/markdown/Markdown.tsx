@@ -1,6 +1,8 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Highlight } from "../highlight/Highlight.tsx";
+import { normalizeLanguage } from "../highlight/languages.ts";
 import { safeUrl, splitBlocks } from "./blocks.ts";
 
 function CopyButton({ text }: { text: string }) {
@@ -29,7 +31,9 @@ function CodeBlock({ language, code }: { language: string | undefined; code: str
         <CopyButton text={code} />
       </div>
       <pre className="overflow-x-auto p-3 text-sm leading-relaxed">
-        <code>{code}</code>
+        <code>
+          <Highlight code={code} language={normalizeLanguage(language)} />
+        </code>
       </pre>
     </div>
   );

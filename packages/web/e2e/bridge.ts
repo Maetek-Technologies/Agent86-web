@@ -137,6 +137,11 @@ export async function scriptedModel(
   );
   return {
     env: { HOME: home, USERPROFILE: home },
-    stop: () => new Promise((resolve) => server.close(() => resolve())),
+    // agent86 keeps its connection to the model open; close it, or close() waits for it.
+    stop: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
   };
 }

@@ -3,6 +3,7 @@
 import type {
   AvailableCommand,
   ContentBlock,
+  PermissionOption,
   SessionConfigOption,
   SessionUpdate,
   StopReason,
@@ -43,6 +44,27 @@ export interface ToolEntry {
   rawInput?: unknown;
   /** The text content the agent reported for the call (its result, for agent86). */
   output: string;
+  /** What the call would do, as shown when approval was asked: a diff, a command, the arguments. */
+  preview?: string;
+  /** How the approval for this call was answered, if one was asked. */
+  decision?: PermissionDecision;
+}
+
+/** How a permission request was answered. Anything but "allowed" declines the call. */
+export type PermissionDecision = "allowed" | "rejected" | "cancelled";
+
+/** A permission request agent86 is waiting on (`session/request_permission`). */
+export interface PendingPermission {
+  /** Local id, for answering. */
+  id: number;
+  toolCallId: string;
+  title: string;
+  toolKind?: ToolKind;
+  rawInput?: unknown;
+  /** The detail the user decides on (agent86 sends a diff, a command, or the arguments). */
+  text: string;
+  /** The choices, in the agent's order. */
+  options: PermissionOption[];
 }
 
 export interface NoticeEntry {
@@ -79,6 +101,8 @@ export interface SessionState {
   turn: TurnState;
   configOptions: SessionConfigOption[];
   commands: AvailableCommand[];
+  /** Permission requests waiting for an answer, oldest first. */
+  permissions: PendingPermission[];
   /** Why the connection ended, once it has. */
   closed?: string;
   nextId: number;
@@ -96,6 +120,7 @@ export function initialState(
     turn: { running: false, cancelRequested: false },
     configOptions,
     commands: [],
+    permissions: [],
     nextId: 1,
   };
 }
@@ -222,6 +247,59 @@ export function markClosed(state: SessionState, reason: string, now: number): Se
   return next;
 }
 
+function updateTool(
+  state: SessionState,
+  toolCallId: string,
+  change: (entry: ToolEntry) => ToolEntry,
+): SessionState {
+  const index = state.entries.findIndex((e) => e.kind === "tool" && e.toolCallId === toolCallId);
+  if (index < 0) return state;
+  const entries = [...state.entries];
+  entries[index] = change(entries[index] as ToolEntry);
+  return { ...state, entries };
+}
+
+/** agent86 asked for permission. The call's card shows the request until it is answered. */
+export function addPermission(
+  state: SessionState,
+  request: Omit<PendingPermission, "id">,
+  now: number,
+): { state: SessionState; id: number } {
+  const id = state.nextId;
+  let next: SessionState = {
+    ...state,
+    permissions: [...state.permissions, { ...request, id }],
+    nextId: id + 1,
+  };
+  // agent86 reports the call before it asks; if a client ever sees the ask first, add the card.
+  const known = next.entries.some((e) => e.kind === "tool" && e.toolCallId === request.toolCallId);
+  if (!known) {
+    next = withEntry(endThought(next, now), {
+      kind: "tool",
+      toolCallId: request.toolCallId,
+      title: request.title,
+      status: "pending",
+      output: "",
+      ...(request.toolKind ? { toolKind: request.toolKind } : {}),
+      ...(request.rawInput !== undefined ? { rawInput: request.rawInput } : {}),
+    });
+  }
+  next = updateTool(next, request.toolCallId, (entry) => ({ ...entry, preview: request.text }));
+  return { state: next, id };
+}
+
+/** A permission request was answered (or cancelled, or the connection went). */
+export function resolvePermission(
+  state: SessionState,
+  id: number,
+  decision: PermissionDecision,
+): SessionState {
+  const request = state.permissions.find((p) => p.id === id);
+  if (!request) return state;
+  const next = { ...state, permissions: state.permissions.filter((p) => p.id !== id) };
+  return updateTool(next, request.toolCallId, (entry) => ({ ...entry, decision }));
+}
+
 /** Fold one `session/update` into the state. Unknown kinds are ignored. */
 export function applyUpdate(state: SessionState, update: SessionUpdate, now: number): SessionState {
   const last = state.entries.at(-1);
@@ -287,6 +365,7 @@ export function applyUpdate(state: SessionState, update: SessionUpdate, now: num
 export function phase(state: SessionState): string | undefined {
   if (!state.turn.running) return undefined;
   if (state.turn.cancelRequested) return "Cancelling…";
+  if (state.permissions.length > 0) return "Waiting for your approval";
   for (let i = state.entries.length - 1; i >= 0; i--) {
     const entry = state.entries[i]!;
     if (entry.kind === "tool" && (entry.status === "pending" || entry.status === "in_progress")) {

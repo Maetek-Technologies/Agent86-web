@@ -5,6 +5,7 @@ import {
   PROTOCOL_VERSION,
   type ClientConnection,
   type InitializeResponse,
+  type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
   type Stream,
@@ -16,13 +17,16 @@ import {
   type Compatibility,
 } from "./handshake.ts";
 import {
+  addPermission,
   applyUpdate,
   endTurn,
   failTurn,
   initialState,
   markClosed,
   requestCancel,
+  resolvePermission,
   startTurn,
+  type PermissionDecision,
   type SessionState,
 } from "./session-state.ts";
 
@@ -40,6 +44,8 @@ function errorMessage(error: unknown): string {
 export class AgentSession {
   private state: SessionState;
   private readonly listeners = new Set<() => void>();
+  /** How to answer each pending permission request, by its local id. */
+  private readonly answers = new Map<number, (response: RequestPermissionResponse) => void>();
 
   constructor(
     private readonly connection: ClientConnection,
@@ -79,18 +85,63 @@ export class AgentSession {
         sessionId: this.id,
         prompt: [{ type: "text", text }],
       });
+      this.cancelPermissions();
       this.set(endTurn(this.state, result.stopReason, this.now()));
     } catch (error) {
+      this.cancelPermissions();
       if (this.state.closed) return;
       this.set(failTurn(this.state, errorMessage(error), this.now()));
     }
   }
 
-  /** Ask agent86 to stop the turn at its next safe point. The prompt then ends as `cancelled`. */
+  /**
+   * Ask agent86 to stop the turn at its next safe point. The prompt then ends as `cancelled`.
+   * Any permission request still open is answered `cancelled`, as ACP requires.
+   */
   async cancel(): Promise<void> {
     if (!this.state.turn.running || this.state.turn.cancelRequested) return;
     this.set(requestCancel(this.state));
+    this.cancelPermissions();
     await this.connection.agent.notify(methods.agent.session.cancel, { sessionId: this.id });
+  }
+
+  /**
+   * Answer a permission request with one of its options. Only an `allow_*` option allows the
+   * call; agent86 declines on anything else.
+   */
+  respond(permissionId: number, optionId: string): void {
+    const request = this.state.permissions.find((p) => p.id === permissionId);
+    const answer = this.answers.get(permissionId);
+    const option = request?.options.find((o) => o.optionId === optionId);
+    if (!request || !answer || !option) return;
+    this.answers.delete(permissionId);
+    const decision: PermissionDecision = option.kind.startsWith("allow") ? "allowed" : "rejected";
+    this.set(resolvePermission(this.state, permissionId, decision));
+    answer({ outcome: { outcome: "selected", optionId } });
+  }
+
+  /** Decline a permission request: its reject option if it has one, else `cancelled`. */
+  reject(permissionId: number): void {
+    const request = this.state.permissions.find((p) => p.id === permissionId);
+    if (!request) return;
+    const option =
+      request.options.find((o) => o.kind === "reject_once") ??
+      request.options.find((o) => o.kind.startsWith("reject"));
+    if (option) {
+      this.respond(permissionId, option.optionId);
+      return;
+    }
+    this.answers.get(permissionId)?.({ outcome: { outcome: "cancelled" } });
+    this.answers.delete(permissionId);
+    this.set(resolvePermission(this.state, permissionId, "cancelled"));
+  }
+
+  private cancelPermissions(): void {
+    for (const request of this.state.permissions) {
+      this.answers.get(request.id)?.({ outcome: { outcome: "cancelled" } });
+      this.answers.delete(request.id);
+      this.set(resolvePermission(this.state, request.id, "cancelled"));
+    }
   }
 
   /** @internal Called by the client for this session's updates. */
@@ -99,15 +150,41 @@ export class AgentSession {
   }
 
   /**
-   * @internal Called by the client for this session's permission requests. The approval panel
-   * arrives in M3; until then every request is declined.
+   * @internal Called by the client for this session's permission requests. Resolves when the
+   * user answers, the turn is cancelled, or the connection closes.
    */
-  requestPermission(): RequestPermissionResponse {
-    return { outcome: { outcome: "cancelled" } };
+  requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+    if (this.state.turn.cancelRequested || this.state.closed) {
+      return Promise.resolve({ outcome: { outcome: "cancelled" } });
+    }
+    const { toolCall } = params;
+    const text = (toolCall.content ?? [])
+      .map((item) =>
+        item.type === "content" && item.content.type === "text" ? item.content.text : "",
+      )
+      .filter(Boolean)
+      .join("\n");
+    const { state, id } = addPermission(
+      this.state,
+      {
+        toolCallId: toolCall.toolCallId,
+        title: toolCall.title ?? toolCall.toolCallId,
+        ...(toolCall.kind ? { toolKind: toolCall.kind } : {}),
+        ...(toolCall.rawInput !== undefined ? { rawInput: toolCall.rawInput } : {}),
+        text,
+        options: params.options,
+      },
+      this.now(),
+    );
+    return new Promise((resolve) => {
+      this.answers.set(id, resolve);
+      this.set(state);
+    });
   }
 
   /** @internal */
   markClosed(reason: string): void {
+    this.cancelPermissions();
     this.set(markClosed(this.state, reason, this.now()));
   }
 }
@@ -142,7 +219,7 @@ export class Agent86Client {
       })
       .onRequest(methods.client.session.requestPermission, ({ params }) => {
         const session = self?.sessions.get(params.sessionId);
-        return session?.requestPermission() ?? { outcome: { outcome: "cancelled" } };
+        return session?.requestPermission(params) ?? { outcome: { outcome: "cancelled" as const } };
       });
     const connection = app.connect(stream);
     try {

@@ -14,12 +14,12 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 
 | Terminal feature | ACP | Web UI | Status | Milestone |
 |---|---|---|---|---|
-| Streaming reply rendered as Markdown | `session/update` `agent_message_chunk` | Incremental Markdown (only the last block re-parsed) with copyable code blocks | 🟡 Code is not highlighted yet; that comes in M3 with the diff viewer | M2 |
+| Streaming reply rendered as Markdown | `session/update` `agent_message_chunk` | Incremental Markdown (only the last block re-parsed), with highlighted, copyable code blocks | ✅ | M2, M3 |
 | Thinking model's reasoning, dimmed | `agent_thought_chunk` | A collapsible "thinking" block, collapsed by default once the answer starts | ✅ | M2 |
 | `/thinking full\|summary\|hidden`, Ctrl+T | slash command over ACP | Slash command, plus a local display toggle | ✅ | M4 |
 | Tool call blocks `⏺ name(args)` / `⎿ result` | `tool_call`, `tool_call_update` | Cards with status, arguments, and an expandable result | ✅ | M3 |
 | `/toolview full\|summary\|hidden` | slash command over ACP | Slash command, plus a local display toggle | ✅ | M4 |
-| Ctrl+O full transcript with every call expanded | — (the client has all the data) | "Expand all" toggle | ✅ | M3 |
+| Ctrl+O full transcript with every call expanded | — (the client has all the data) | Ctrl+O toggles every card open | ✅ | M3 |
 | Esc / Ctrl+C cancels at the next safe point | `session/cancel` → `stopReason: cancelled` | Esc key and a Stop button | ✅ | M2 |
 | Turn summary line, errors, trace hint | prompt result plus message text | Errors with `agent86 trace show -s <id>`, and a divider showing the turn's duration | 🟡 Usage figures are not sent over ACP | M2 |
 | `[cancelled]` after a cancelled reply | `agent_message_chunk` text, then `stopReason: cancelled` | A "Cancelled." notice; agent86's trailing marker is dropped so the cancel shows once | ✅ | M2 |
@@ -33,8 +33,8 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 
 | Terminal feature | ACP | Web UI | Status | Milestone |
 |---|---|---|---|---|
-| Approval panel with numbered choices | `session/request_permission` | A modal or inline panel, with number keys as shortcuts | ✅ | M3 |
-| Coloured diff for file edits | permission `toolCall.content` `diff` | Side-by-side or unified diff viewer | ✅ | M3 |
+| Approval panel with numbered choices | `session/request_permission` | An inline panel in the call's card, number keys and buttons, Esc rejects, and the tab title flags it | ✅ | M3 |
+| Coloured diff for file edits | permission `toolCall.content` text: agent86 sends a unified diff as text, not ACP's `diff` type | Unified diff viewer with line numbers and highlighting; a new file is shown as its content | ✅ (unified only; side-by-side later) | M3 |
 | Command preview for `run_command` / `python_exec` | permission request content | Highlighted command block | ✅ | M3 |
 | Warning for writes into agent86's own config or skills | permission request content | Shown prominently above the detail | ✅ | M3 |
 | Approval mode `ask`/`auto`/`deny`, Shift+Tab, `/mode` | `session/set_config_option`, `config_option_update` | A mode selector in the thread header | ✅ | M4 |

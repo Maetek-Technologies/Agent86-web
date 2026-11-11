@@ -8,10 +8,11 @@
 //   MOCK_AGENT86_VERSION   the version to report (default 1.0.15)
 //   MOCK_AGENT86_NAME      the agentInfo name to report (default agent86)
 //   MOCK_AGENT86_RECORD    a file to append every received message to, one JSON per line
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { agent, methods, ndJsonStream, RequestError } from "@agentclientprotocol/sdk";
-import { script } from "./mock-openai.js";
+import { script, toolFor } from "./mock-openai.js";
 
 const version = process.env.MOCK_AGENT86_VERSION ?? "1.0.15";
 const name = process.env.MOCK_AGENT86_NAME ?? "agent86";
@@ -38,6 +39,87 @@ function remember(method, params) {
 process.stderr.write(`mock-agent86 ${version}: started in ${process.cwd()}\n`);
 
 let nextSession = 1;
+let nextCall = 1;
+
+/**
+ * What agent86 would show for a call (its approval text) and do with it, in agent86's own formats:
+ * a unified diff for an edit, "new file: …" for a new file, the command or code for exec tools, and
+ * a warning paragraph for writes into agent86's own config or skills.
+ * @param {{ name: string; arguments: Record<string, any> }} tool
+ */
+function describe(tool) {
+  const args = tool.arguments;
+  const path = typeof args.path === "string" ? join(process.cwd(), args.path) : "";
+  switch (tool.name) {
+    case "edit_file": {
+      const before = existsSync(path) ? readFileSync(path, "utf8") : "";
+      const after = before.replace(args.old_string, args.new_string);
+      const diff = before
+        .split("\n")
+        .map((line, i) => [line, after.split("\n")[i]])
+        .filter(([a, b]) => a !== b)
+        .map(([a, b]) => `-${a}\n+${b}`)
+        .join("\n");
+      const text = `--- a/${args.path}\n+++ b/${args.path}\n@@ -1 +1 @@\n${diff}`;
+      return {
+        approval: text,
+        run: () => {
+          if (!before.includes(args.old_string))
+            return { ok: false, text: `Error: old_string not found in ${args.path}` };
+          writeFileSync(path, after);
+          return { ok: true, text: `Edited ${args.path} (1 replacement).\n${text}` };
+        },
+      };
+    }
+    case "write_file": {
+      const lines = String(args.content).split("\n").filter(Boolean).length;
+      const body = `new file: ${args.path} (${lines} lines)\n${args.content}`;
+      const guarded = String(args.path).startsWith(".agent86/");
+      return {
+        approval: guarded
+          ? `Warning: This writes agent86's own configuration or skills (${args.path}), which changes what agent86 runs or is told from now on. Asked even in auto mode.\n\n${body}`
+          : body,
+        run: () => {
+          mkdirSync(dirname(path), { recursive: true });
+          writeFileSync(path, args.content);
+          return {
+            ok: true,
+            text: `Wrote ${Buffer.byteLength(args.content)} bytes to ${args.path} (new file).`,
+          };
+        },
+      };
+    }
+    case "run_command":
+      return {
+        approval: args.command,
+        run: () => ({
+          ok: true,
+          text: `exit code: 0\nstdout:\n${String(args.command).replace(/^echo /, "")}\n`,
+        }),
+      };
+    case "python_exec":
+      return {
+        approval: args.code,
+        run: () => ({ ok: true, text: "exit code: 0\nstdout:\n42\n" }),
+      };
+    default:
+      return {
+        approval: undefined,
+        run: () => ({
+          ok: true,
+          text: existsSync(path) ? readFileSync(path, "utf8") : `Error: ${args.path} not found`,
+        }),
+      };
+  }
+}
+
+const KINDS = /** @type {const} */ ({
+  edit_file: "edit",
+  write_file: "edit",
+  run_command: "execute",
+  python_exec: "execute",
+  read_file: "read",
+});
 /** Sessions whose running turn was asked to stop. */
 const cancelled = new Set();
 /** @param {number} ms */
@@ -92,6 +174,59 @@ const app = agent({ name: "mock-agent86" })
         -32603,
         'HTTP 400: {"error":{"message":"The mock model refuses: you asked it to fail."}}',
       );
+    }
+    const tool = toolFor(text);
+    if (tool) {
+      const toolCallId = `call_${nextCall++}`;
+      const title = `${tool.name}(${JSON.stringify(tool.arguments)})`;
+      const kind = KINDS[/** @type {keyof typeof KINDS} */ (tool.name)] ?? "other";
+      await say("agent_thought_chunk", `I will use ${tool.name}.`);
+      await client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId,
+          title,
+          kind,
+          status: "pending",
+          rawInput: tool.arguments,
+        },
+      });
+      const { approval, run } = describe(tool);
+      let allowed = true;
+      if (approval !== undefined) {
+        /** @type {import("@agentclientprotocol/sdk").RequestPermissionResponse} */
+        const answer = await client.request(methods.client.session.requestPermission, {
+          sessionId,
+          toolCall: {
+            toolCallId,
+            title,
+            kind,
+            status: "pending",
+            rawInput: tool.arguments,
+            content: [{ type: "content", content: { type: "text", text: approval } }],
+          },
+          options: [
+            { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+            { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+          ],
+        });
+        remember("permission answer", answer);
+        allowed = answer.outcome.outcome === "selected" && answer.outcome.optionId === "allow-once";
+      }
+      const outcome = allowed ? run() : { ok: false, text: "Not executed: declined by user." };
+      await client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId,
+          status: outcome.ok ? "completed" : "failed",
+          content: [{ type: "content", content: { type: "text", text: outcome.text } }],
+        },
+      });
+      if (cancelled.has(sessionId)) return { stopReason: "cancelled" };
+      await say("agent_message_chunk", `Tool result: ${outcome.text.slice(0, 300)}`);
+      return { stopReason: "end_turn" };
     }
     const { reasoning, content, delayMs } = script(text);
     for (const [kind, pieces] of /** @type {const} */ ([

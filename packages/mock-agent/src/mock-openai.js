@@ -5,6 +5,12 @@
 //   contains "fail"      HTTP 400 with an OpenAI-style error body
 //   contains "slow"      a long reply streamed slowly (for cancel tests)
 //   contains "markdown"  a reply exercising headings, lists, code, a table, and links
+//   contains "typo"      calls edit_file on README.md ("Teh" → "The")
+//   contains "write"     calls write_file to create notes.txt
+//   contains "command"   calls run_command (echo)
+//   contains "python"    calls python_exec
+//   contains "read"      calls read_file on README.md (no approval needed)
+//   contains "skill"     calls write_file into .agent86/skills (agent86 warns about it)
 //   anything else        a short reasoning trace, then "Hello from the mock model. You said: <text>"
 //
 //   mock-openai [--port <n>]    prints "listening on <port>" once ready
@@ -39,6 +45,35 @@ const MARKDOWN = [
   "",
   "<script>alert('xss')</script> raw HTML stays text.",
 ].join("\n");
+
+/** The tool call a prompt asks for, if any. */
+/** @param {string} prompt @returns {{ name: string; arguments: Record<string, unknown> } | undefined} */
+export function toolFor(prompt) {
+  if (/typo/i.test(prompt))
+    return {
+      name: "edit_file",
+      arguments: { path: "README.md", old_string: "Teh", new_string: "The" },
+    };
+  if (/skill/i.test(prompt)) {
+    return {
+      name: "write_file",
+      arguments: {
+        path: ".agent86/skills/demo/SKILL.md",
+        content: "---\nname: demo\ndescription: A demo skill.\n---\nSay hi.\n",
+      },
+    };
+  }
+  if (/write/i.test(prompt))
+    return {
+      name: "write_file",
+      arguments: { path: "notes.txt", content: "first line\nsecond line\n" },
+    };
+  if (/command/i.test(prompt))
+    return { name: "run_command", arguments: { command: "echo hello-from-agent86" } };
+  if (/python/i.test(prompt)) return { name: "python_exec", arguments: { code: "print(6 * 7)" } };
+  if (/read/i.test(prompt)) return { name: "read_file", arguments: { path: "README.md" } };
+  return undefined;
+}
 
 /**
  * The pieces of one streamed reply.
@@ -103,7 +138,19 @@ export function createMockOpenAI() {
       return;
     }
 
-    const { reasoning, content, delayMs } = script(prompt);
+    // After a tool ran, agent86 sends its result back: answer with it, so a test can see it.
+    const last = messages.at(-1);
+    const tool = last?.role === "user" ? toolFor(prompt) : undefined;
+    const { reasoning, content, delayMs } =
+      last?.role === "tool"
+        ? {
+            reasoning: ["The", " tool", " finished."],
+            content: [`Tool result: ${textOf(last.content).slice(0, 300)}`],
+            delayMs: 5,
+          }
+        : tool
+          ? { reasoning: ["I", " will", " use", ` ${tool.name}.`], content: [], delayMs: 5 }
+          : script(prompt);
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
     let aborted = false;
     res.on("close", () => (aborted = true));
@@ -124,7 +171,21 @@ export function createMockOpenAI() {
       send({ content: piece });
       await sleep(delayMs);
     }
-    send({}, "stop");
+    if (tool) {
+      send({
+        tool_calls: [
+          {
+            index: 0,
+            id: `call_${Date.now()}`,
+            type: "function",
+            function: { name: tool.name, arguments: JSON.stringify(tool.arguments) },
+          },
+        ],
+      });
+      send({}, "tool_calls");
+    } else {
+      send({}, "stop");
+    }
     res.write(
       `data: ${JSON.stringify({ id, object: "chat.completion.chunk", choices: [], usage: { prompt_tokens: 12, completion_tokens: content.length, total_tokens: 12 + content.length } })}\n\n`,
     );

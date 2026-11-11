@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  addPermission,
   applyUpdate,
   endTurn,
   failTurn,
@@ -7,6 +8,7 @@ import {
   markClosed,
   phase,
   requestCancel,
+  resolvePermission,
   startTurn,
   type SessionState,
   type SessionUpdate,
@@ -205,5 +207,58 @@ describe("other updates", () => {
   it("ignores update kinds it does not know", () => {
     const s = fresh();
     expect(applyUpdate(s, { sessionUpdate: "plan", entries: [] } as SessionUpdate, 0)).toBe(s);
+  });
+});
+
+describe("permissions", () => {
+  const request = {
+    toolCallId: "t1",
+    title: "edit_file(...)",
+    toolKind: "edit" as const,
+    rawInput: { path: "README.md" },
+    text: "--- a/README.md\n+++ b/README.md",
+    options: [
+      { optionId: "allow-once", name: "Allow once", kind: "allow_once" as const },
+      { optionId: "reject-once", name: "Reject", kind: "reject_once" as const },
+    ],
+  };
+  const withCall = () =>
+    applyUpdate(
+      startTurn(fresh(), "fix it", 0),
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "t1",
+        title: "edit_file(...)",
+        name: "edit_file",
+        kind: "edit",
+        status: "pending",
+      } as SessionUpdate,
+      10,
+    );
+
+  it("keeps the request, puts its detail on the card, and shows it in the phase", () => {
+    const { state, id } = addPermission(withCall(), request, 20);
+    expect(state.permissions).toEqual([{ ...request, id }]);
+    expect(state.entries[1]).toMatchObject({ kind: "tool", preview: request.text });
+    expect(phase(state)).toBe("Waiting for your approval");
+  });
+
+  it("records the decision on the card once answered", () => {
+    const { state, id } = addPermission(withCall(), request, 20);
+    const answered = resolvePermission(state, id, "rejected");
+    expect(answered.permissions).toEqual([]);
+    expect(answered.entries[1]).toMatchObject({ decision: "rejected" });
+    expect(phase(answered)).toBe("Running edit_file…");
+    expect(resolvePermission(answered, id, "allowed")).toBe(answered);
+  });
+
+  it("adds a card when the request arrives before the call", () => {
+    const { state } = addPermission(startTurn(fresh(), "x", 0), request, 5);
+    expect(state.entries[1]).toMatchObject({
+      kind: "tool",
+      toolCallId: "t1",
+      preview: request.text,
+      status: "pending",
+    });
   });
 });
