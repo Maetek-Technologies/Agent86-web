@@ -6,6 +6,8 @@ export interface BridgeInfo {
   agent86: { command: string; version: string; minVersion: string };
   roots: string[];
   defaultWorkspace: string;
+  /** Newer releases found by the bridge's daily check, if any. */
+  updates?: { agent86?: string; agent86Web?: string };
 }
 
 export class BridgeError extends Error {

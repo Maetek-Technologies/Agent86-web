@@ -12,6 +12,7 @@ The aim is to test the protocol, the bridge's security, and the UI without needi
 | Web components | Vitest + Testing Library | Markdown sanitization (XSS corpus), tool cards, the permission panel, the diff view, keyboard shortcuts | yes |
 | End to end (mock agent) | Playwright | Full flows in a real browser against the bridge with `packages/mock-agent` instead of agent86 | yes |
 | End to end (real agent86) | Playwright | Smoke flows against the real `agent86 acp` with a scripted model endpoint | yes (Linux), optional elsewhere |
+| Installed package | CI `package` job | `pnpm pack`, install the tarball into an empty project on Node 20, run the handshake and chat browser tests against it (`AGENT86_WEB_CLI`) | yes |
 | Manual | checklist | Real models, long sessions, reconnects, Safari and Firefox | before each release |
 
 ## 2. Mock agent

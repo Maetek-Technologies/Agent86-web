@@ -13,6 +13,7 @@ import { listSessions } from "./sessions.ts";
 import { serveStatic } from "./static.ts";
 import { ThreadRegistry } from "./threads.ts";
 import { readProjectConfig, TrustStore } from "./trust.ts";
+import { checkForUpdates, type Updates } from "./updates.ts";
 import { realpath, resolveWorkspace, within } from "./workspaces.ts";
 
 export const BRIDGE_VERSION: string = (
@@ -51,6 +52,10 @@ export interface BridgeOptions {
   idleTimeoutMs?: number;
   /** Where the bridge keeps its own state, such as trusted projects (default `~/.agent86-web`). */
   stateDir?: string;
+  /** Check the npm registry for newer releases, once a day (the CLI turns it on; default off). */
+  updateCheck?: boolean;
+  /** For tests: how the update check finds a package's latest version. */
+  latestVersion?: (pkg: string) => Promise<string | undefined>;
   log?: (line: string) => void;
 }
 
@@ -105,6 +110,27 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
 
   const log = options.log ?? (() => undefined);
   const trust = new TrustStore(options.stateDir);
+  /** Newer releases, filled in the background after startup. */
+  let updates: Updates = {};
+  if (options.updateCheck) {
+    void checkForUpdates({
+      current: { agent86: options.agent86.version, agent86Web: BRIDGE_VERSION },
+      ...(options.stateDir ? { stateDir: options.stateDir } : {}),
+      ...(options.latestVersion ? { latestVersion: options.latestVersion } : {}),
+    })
+      .then((found) => {
+        updates = found;
+        if (found.agent86)
+          log(
+            `agent86 ${found.agent86} is available (running ${options.agent86.version}): npm install -g agent86@latest`,
+          );
+        if (found.agent86Web)
+          log(
+            `agent86-web ${found.agent86Web} is available (running ${BRIDGE_VERSION}): npm install -g agent86-web@latest`,
+          );
+      })
+      .catch(() => undefined);
+  }
   /** agent86's arguments for a workspace, hashing its config file right before the spawn. */
   const agentArgs = (workspace: string): string[] =>
     trust.isTrusted(workspace)
@@ -193,6 +219,7 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
           },
           roots: options.roots,
           defaultWorkspace: options.roots[0],
+          updates,
         });
       }
       if (url.pathname === "/api/workspaces" && req.method === "GET") {

@@ -44,6 +44,37 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** Newer releases, with how to install them (the bridge checks npm once a day). */
+function UpdateNotes({ info }: { info: BridgeInfo }) {
+  const updates = info.updates ?? {};
+  const notes = [
+    updates.agent86 && {
+      name: "agent86",
+      version: updates.agent86,
+      command: "npm install -g agent86@latest",
+    },
+    updates.agent86Web && {
+      name: "agent86-web",
+      version: updates.agent86Web,
+      command: "npm install -g agent86-web@latest",
+    },
+  ].filter(Boolean) as { name: string; version: string; command: string }[];
+  if (notes.length === 0) return null;
+  return (
+    <section
+      aria-label="Updates"
+      className="mt-4 rounded border border-accent/50 bg-panel p-3 text-sm"
+    >
+      {notes.map((note) => (
+        <p key={note.name}>
+          {note.name} {note.version} is available:{" "}
+          <code className="rounded bg-panel-2 px-1 font-mono text-xs">{note.command}</code>
+        </p>
+      ))}
+    </section>
+  );
+}
+
 function Details({ info, onClose }: { info: BridgeInfo; onClose: () => void }) {
   return (
     <div className="border-b border-border bg-panel-2">
@@ -64,6 +95,7 @@ function Details({ info, onClose }: { info: BridgeInfo; onClose: () => void }) {
           <Row label="agent86-web">{info.bridge.version}</Row>
           <Row label="Allowed roots">{info.roots.join(", ")}</Row>
         </dl>
+        <UpdateNotes info={info} />
         <TrustedProjects />
         <p className="mt-3 text-xs text-muted">
           A browser interface for{" "}
@@ -110,6 +142,11 @@ function Header({
         {info && (
           <button type="button" onClick={onShowDetails} className="font-mono hover:text-text">
             agent86 {info.agent86.version}
+            {(info.updates?.agent86 || info.updates?.agent86Web) && (
+              <span className="ml-1.5 rounded bg-accent px-1 font-sans text-[10px] font-semibold text-bg">
+                update
+              </span>
+            )}
           </button>
         )}
       </div>

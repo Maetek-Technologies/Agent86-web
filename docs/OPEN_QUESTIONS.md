@@ -5,7 +5,7 @@ Each question has a recommendation. Settle each one before the milestone listed 
 ## Decided
 
 ### Q1. Package and repository names
-**Decided 2026-11-10:** the npm package and the command are both `agent86-web`, unscoped. Before the first publish (M5), check that the name is still free on npm. If it has been taken, use a scope and record it here.
+**Decided 2026-11-10:** the npm package and the command are both `agent86-web`, unscoped. Checked again on 2026-11-11 (M5): still free on npm. If it is taken before the first publish, use a scope and record it here.
 
 ### Q2. Project trust
 **Decided 2026-11-10, built in M4:** the browser may trust a project, through a "Trust this project" confirmation. The design is in [ADR 0004](adr/0004-project-trust-from-the-browser.md): the dialog shows the project's `.agent86/config.toml`, the bridge remembers the decision by the file's SHA-256 hash and asks again when the file changes, and trusted threads are started with `--trust-project`. The banner appears when agent86's stderr says it ignored settings that need trust.
@@ -41,7 +41,8 @@ One agent86 process per thread allows parallel turns but costs memory (each may 
 **Measured (M4, Linux, hash embedder):** an idle `agent86 acp` uses 15–18 MB. The npm-installed `agent86` command is a Node launcher that adds about 45 MB per process, so `--agent86 <path to the native binary>` saves most of the cost per thread. Not yet measured: the default sentence-transformers embedder, which loads a model into each process. Revisit if eight threads prove heavy.
 
 ### Q10. Update notices
-**Needed by:** M5
+**Built in M5:** the bridge asks the npm registry for the latest `agent86` and `agent86-web` at most once a day (cached in `~/.agent86-web/update-check.json`), never blocking startup, and the page shows a notice with the install command. `--no-update-check` or `AGENT86_WEB_NO_UPDATE_CHECK=1` turns it off; the dev server never checks.
+**Needed by:** M5 (done)
 The minimum version part is done in M1: the bridge refuses agent86 older than 1.0.15 at startup (`agent86 --version`), and the client checks `initialize`'s `agentInfo` again.
 **Recommendation:** show a non-blocking notice when a newer agent86 or agent86-web release exists. It needs one GitHub or npm call a day and can be turned off, as agent86's own check can.
 

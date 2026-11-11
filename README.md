@@ -4,7 +4,7 @@ A browser interface for [agent86](https://github.com/Maetek-Technologies/agent86
 
 agent86-web gives you agent86's conversation, tool calls, approvals, and saved sessions in a browser tab. The agent itself does not change. agent86 still runs on your machine, with your config, keys, sandbox, memory, and sessions. The website is a different way to drive it.
 
-> **Status: milestone M4 (sessions, models, workspaces) done.** Run several agent86 threads in tabs, reopen any saved session (including ones started at a terminal), pick the workspace, model, and approval mode, use `/` commands and `@` file mentions, and trust a project's settings after reviewing them. Next is M5: hardening and the first npm release. Nothing is published yet. The plan is in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
+> **Status: v0.1.0 ready to publish (milestone M5).** All of phase 1 is built, reviewed, and packaged. Once it's on npm, `npx agent86-web` will run it. Until then, run it from this repository (see _Development_). User documentation: [packages/bridge/README.md](packages/bridge/README.md). The plan: [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
 
 ## How it will work
 
@@ -22,7 +22,7 @@ The work is planned in two phases:
 1. **Local (phase 1):** `npx agent86-web` starts the bridge on `127.0.0.1`, opens your browser, and drives the `agent86` binary already installed on your machine.
 2. **Hosted (phase 2, later):** the same UI and the same protocol, with the bridge replaced by a server that runs agent86 in an isolated container for each session. Phase 1 is designed so this can be added without rewriting the client.
 
-## Planned usage (phase 1)
+## Usage
 
 ```sh
 npm install -g agent86          # agent86 itself, if you don't have it
