@@ -26,6 +26,7 @@ beforeEach(async () => {
   writeFileSync(join(base, "secret.txt"), "do not serve");
   record = join(base, "record.jsonl");
   process.env.MOCK_AGENT86_RECORD = record;
+  process.env.MOCK_AGENT86_DB = join(base, "sessions.json");
 
   bridge = await startBridge({
     roots: [root],
@@ -40,6 +41,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await bridge.close();
   delete process.env.MOCK_AGENT86_RECORD;
+  delete process.env.MOCK_AGENT86_DB;
 });
 
 const token = () => new URL(bridge.url).hash.replace("#token=", "");
@@ -70,10 +72,17 @@ function openSocket(path: string, headers: Record<string, string>): Promise<WebS
   });
 }
 
+/** The next message that is not one of the bridge's stderr notifications. */
 function nextMessage(ws: WebSocket): Promise<Record<string, unknown>> {
-  return new Promise((resolve) =>
-    ws.once("message", (data) => resolve(JSON.parse(data.toString()) as Record<string, unknown>)),
-  );
+  return new Promise((resolve) => {
+    const onMessage = (data: WebSocket.RawData) => {
+      const message = JSON.parse(data.toString()) as Record<string, unknown>;
+      if (message.method === "_agent86web/stderr") return;
+      ws.off("message", onMessage);
+      resolve(message);
+    };
+    ws.on("message", onMessage);
+  });
 }
 
 const recorded = () =>
@@ -223,7 +232,10 @@ describe("ACP WebSocket", () => {
         params: { cwd: root, mcpServers: [{ name: "x", command: "/bin/sh", args: [], env: [] }] },
       }),
     );
-    expect(await created).toMatchObject({ id: 6, result: { sessionId: "mock-session-1" } });
+    expect(await created).toMatchObject({
+      id: 6,
+      result: { sessionId: expect.stringMatching(/^mock-/) },
+    });
     expect(recorded().map((m) => m.method)).toEqual(["initialize", "session/new"]);
     expect(recorded()[1]?.params.mcpServers).toEqual([]);
     ws.close();

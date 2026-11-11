@@ -4,6 +4,7 @@ import {
   methods,
   PROTOCOL_VERSION,
   type ClientConnection,
+  type ContentBlock,
   type InitializeResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
@@ -31,6 +32,50 @@ import {
 } from "./session-state.ts";
 
 export type Clock = () => number;
+
+/** The bridge's notification carrying a line of agent86's stderr (see packages/bridge). */
+export const STDERR_METHOD = "_agent86web/stderr";
+
+/** agent86's words when a project file's riskier settings were left out for lack of trust. */
+const UNTRUSTED = /^project config: ignored (\d+) settings? that needs? trust \((.*?)\)\./;
+
+export interface Untrusted {
+  count: number;
+  /** The first few keys agent86 names ("mcp.servers.x", …), plus "and N more" if it says so. */
+  keys: string[];
+}
+
+export interface LogState {
+  /** agent86's notes for this connection, oldest first (at most `MAX_LOG_LINES`). */
+  lines: string[];
+  /** Set when agent86 says it ignored project settings that need trust. */
+  untrusted?: Untrusted;
+}
+
+export const MAX_LOG_LINES = 500;
+
+/** Parse agent86's note about ignored project settings. */
+export function parseUntrusted(line: string): Untrusted | undefined {
+  const match = UNTRUSTED.exec(line);
+  if (!match) return undefined;
+  return { count: Number(match[1]), keys: match[2]!.split(/,\s*/).filter(Boolean) };
+}
+
+/** agent86 refuses every other request while a prompt turn runs. */
+export class TurnRunningError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TurnRunningError";
+  }
+}
+
+/** A file mentioned in a prompt, sent as an ACP resource link. */
+export interface FileLink {
+  /** As the user sees it, relative to the workspace. */
+  name: string;
+  /** Absolute `file://` URI. */
+  uri: string;
+}
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -75,15 +120,26 @@ export class AgentSession {
     for (const listener of this.listeners) listener();
   }
 
-  /** Send a prompt and resolve when the turn ends, however it ends. */
-  async prompt(text: string): Promise<void> {
+  /**
+   * Send a prompt and resolve when the turn ends, however it ends. Mentioned files go as resource
+   * links, which agent86 shows the model as "name (uri)".
+   */
+  async prompt(text: string, links: FileLink[] = []): Promise<void> {
     if (this.state.turn.running) throw new Error("A turn is already running.");
     if (this.state.closed) throw new Error("The connection to agent86 is closed.");
     this.set(startTurn(this.state, text, this.now()));
     try {
+      const prompt: ContentBlock[] = [
+        { type: "text", text },
+        ...links.map((link): ContentBlock => ({
+          type: "resource_link",
+          name: link.name,
+          uri: link.uri,
+        })),
+      ];
       const result = await this.connection.agent.request(methods.agent.session.prompt, {
         sessionId: this.id,
-        prompt: [{ type: "text", text }],
+        prompt,
       });
       this.cancelPermissions();
       this.set(endTurn(this.state, result.stopReason, this.now()));
@@ -118,6 +174,19 @@ export class AgentSession {
     const decision: PermissionDecision = option.kind.startsWith("allow") ? "allowed" : "rejected";
     this.set(resolvePermission(this.state, permissionId, decision));
     answer({ outcome: { outcome: "selected", optionId } });
+  }
+
+  /**
+   * Change a session setting (the model, the approval mode). Resolves with agent86's answer, all
+   * the options as they now are; rejects with agent86's message, e.g. for a model it does not list.
+   */
+  async setConfigOption(configId: string, value: string): Promise<void> {
+    const result = await this.connection.agent.request(methods.agent.session.setConfigOption, {
+      sessionId: this.id,
+      configId,
+      value,
+    });
+    this.set({ ...this.state, configOptions: result.configOptions });
   }
 
   /** Decline a permission request: its reject option if it has one, else `cancelled`. */
@@ -182,6 +251,11 @@ export class AgentSession {
     });
   }
 
+  /** @internal After a load: the replayed history is in; keep the session's settings. */
+  handleLoaded(configOptions: SessionState["configOptions"]): void {
+    this.set({ ...this.state, configOptions });
+  }
+
   /** @internal */
   markClosed(reason: string): void {
     this.cancelPermissions();
@@ -196,6 +270,23 @@ export interface Agent86ClientOptions {
 /** An initialized ACP connection to agent86. */
 export class Agent86Client {
   private readonly sessions = new Map<string, AgentSession>();
+  private logs: LogState = { lines: [] };
+  private readonly logListeners = new Set<() => void>();
+
+  /** agent86's notes for this connection. A new object after every change. */
+  readonly getLogs = (): LogState => this.logs;
+
+  readonly subscribeLogs = (listener: () => void): (() => void) => {
+    this.logListeners.add(listener);
+    return () => this.logListeners.delete(listener);
+  };
+
+  private addLog(line: string): void {
+    const lines = [...this.logs.lines, line].slice(-MAX_LOG_LINES);
+    const untrusted = parseUntrusted(line) ?? this.logs.untrusted;
+    this.logs = untrusted ? { lines, untrusted } : { lines };
+    for (const listener of this.logListeners) listener();
+  }
 
   private constructor(
     readonly connection: ClientConnection,
@@ -213,10 +304,25 @@ export class Agent86Client {
   static async connect(stream: Stream, options: Agent86ClientOptions = {}): Promise<Agent86Client> {
     const now = options.now ?? Date.now;
     let self: Agent86Client | undefined;
+    // Notes that arrive before initialize returns (the bridge replays them on attach).
+    const early: string[] = [];
     const app = client({ name: CLIENT_INFO.name })
       .onNotification(methods.client.session.update, ({ params }) => {
         self?.sessions.get(params.sessionId)?.handleUpdate(params);
       })
+      .onNotification(
+        STDERR_METHOD,
+        (params: unknown) => {
+          const line = (params as { line?: unknown } | null)?.line;
+          return { line: typeof line === "string" ? line : "" };
+        },
+        ({ params }) => {
+          if (params.line) {
+            if (self) self.addLog(params.line);
+            else early.push(params.line);
+          }
+        },
+      )
       .onRequest(methods.client.session.requestPermission, ({ params }) => {
         const session = self?.sessions.get(params.sessionId);
         return session?.requestPermission(params) ?? { outcome: { outcome: "cancelled" as const } };
@@ -229,6 +335,7 @@ export class Agent86Client {
         clientInfo: CLIENT_INFO,
       });
       self = new Agent86Client(connection, init, checkCompatibility(init), now);
+      for (const line of early) self.addLog(line);
       return self;
     } catch (error) {
       connection.close(error);
@@ -251,6 +358,46 @@ export class Agent86Client {
     );
     this.sessions.set(session.id, session);
     return session;
+  }
+
+  /**
+   * Reopen a saved session: agent86 replays its history as updates, then answers. While a turn
+   * started before (by a page that has since reloaded) is still running, agent86 refuses; with
+   * `waitForTurn`, this tries again every `retryMs` until the turn ends.
+   */
+  async loadSession(
+    sessionId: string,
+    cwd: string,
+    options: {
+      waitForTurn?: boolean;
+      retryMs?: number;
+      onWaiting?: () => void;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<AgentSession> {
+    for (;;) {
+      // A fresh session each attempt, so a refused attempt leaves no half-replayed history.
+      const session = new AgentSession(this.connection, sessionId, cwd, [], this.now);
+      this.sessions.set(sessionId, session);
+      try {
+        const result = await this.connection.agent.request(methods.agent.session.load, {
+          sessionId,
+          cwd,
+          mcpServers: [],
+        });
+        session.handleLoaded(result.configOptions ?? []);
+        return session;
+      } catch (error) {
+        if (this.sessions.get(sessionId) === session) this.sessions.delete(sessionId);
+        const message = errorMessage(error);
+        const busy = /prompt turn is running/i.test(message);
+        if (!busy) throw error;
+        if (!options.waitForTurn) throw new TurnRunningError(message);
+        options.onWaiting?.();
+        await new Promise((resolve) => setTimeout(resolve, options.retryMs ?? 1000));
+        if (options.signal?.aborted) throw new TurnRunningError(message);
+      }
+    }
   }
 
   close(): void {

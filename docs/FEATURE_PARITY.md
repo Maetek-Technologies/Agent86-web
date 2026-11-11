@@ -16,15 +16,15 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 |---|---|---|---|---|
 | Streaming reply rendered as Markdown | `session/update` `agent_message_chunk` | Incremental Markdown (only the last block re-parsed), with highlighted, copyable code blocks | ✅ | M2, M3 |
 | Thinking model's reasoning, dimmed | `agent_thought_chunk` | A collapsible "thinking" block, collapsed by default once the answer starts | ✅ | M2 |
-| `/thinking full\|summary\|hidden`, Ctrl+T | slash command over ACP | Slash command, plus a local display toggle | ✅ | M4 |
+| `/thinking full\|summary\|hidden`, Ctrl+T | slash command over ACP | The slash command, from the `/` menu (agent86 changes what it sends) | 🟡 No Ctrl+T or local toggle yet | M4 |
 | Tool call blocks `⏺ name(args)` / `⎿ result` | `tool_call`, `tool_call_update` | Cards with status, arguments, and an expandable result | ✅ | M3 |
-| `/toolview full\|summary\|hidden` | slash command over ACP | Slash command, plus a local display toggle | ✅ | M4 |
+| `/toolview full\|summary\|hidden` | slash command over ACP | The slash command, from the `/` menu | ✅ | M4 |
 | Ctrl+O full transcript with every call expanded | — (the client has all the data) | Ctrl+O toggles every card open | ✅ | M3 |
 | Esc / Ctrl+C cancels at the next safe point | `session/cancel` → `stopReason: cancelled` | Esc key and a Stop button | ✅ | M2 |
 | Turn summary line, errors, trace hint | prompt result plus message text | Errors with `agent86 trace show -s <id>`, and a divider showing the turn's duration | 🟡 Usage figures are not sent over ACP | M2 |
 | `[cancelled]` after a cancelled reply | `agent_message_chunk` text, then `stopReason: cancelled` | A "Cancelled." notice; agent86's trailing marker is dropped so the cancel shows once | ✅ | M2 |
 | No key for the model | `session/new` error | agent86's message, plus help: `agent86 keys set <provider>` or `/config model` at a terminal | ✅ | M2 |
-| `@file` mentions with path completion | prompt `resource_link` blocks | `@` menu backed by `/api/workspaces` (directory and file names only), sent as file links | 🟡 agent86 ACP has no `@` menu of its own; the bridge lists names, and agent86 reads the file | M4 |
+| `@file` mentions with path completion | prompt `resource_link` blocks | `@` menu backed by the bridge's `/api/files` (names only, hidden folders skipped), sent as file links | 🟡 The terminal puts the file's contents in the message; over ACP agent86 shows the model the link (`name (uri)`) and the model reads the file with `read_file` | M4 |
 | Prompt history (Up arrow) | — | Per-workspace history in `localStorage` | 🟡 Not shared with the terminal's history file | M4 |
 | Multi-line input | — | Shift+Enter | ✅ | M2 |
 | Images in the prompt | not accepted by agent86 | — | ⛔ | — |
@@ -44,7 +44,7 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 
 | Terminal feature | ACP | Web UI | Status | Milestone |
 |---|---|---|---|---|
-| `/model` picker with the providers' live lists | config option `model`, filled in the background | A grouped, searchable model selector | ✅ | M4 |
+| `/model` picker with the providers' live lists | config option `model`, filled in the background (`config_option_update`) | A grouped model selector (Configured, then each provider); only models agent86 lists can be chosen | ✅ (not searchable yet) | M4 |
 | `/models` | slash command (not in agent86's ACP set) | Covered by the selector | 🟡 | M4 |
 | Triage router (`[model] router`) | agent-side | Unchanged; the selector shows the configured routes | ✅ | — |
 | `/config model` (provider, key, model, saved to config) | none | Terminal only. The UI links to instructions. | ⛔ | — |
@@ -53,11 +53,12 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 
 | Terminal feature | ACP | Web UI | Status | Milestone |
 |---|---|---|---|---|
-| `/sessions`, `/resume` picker | `session/list`, `session/load` (replay) | Sidebar of sessions per workspace, newest first | ✅ | M4 |
+| `/sessions`, `/resume` picker | `session/list`, `session/load` (replay) | Sidebar of sessions per workspace, newest first. Sessions started at a terminal have no recorded directory, so agent86 lists them under every workspace | ✅ | M4 |
 | `--resume <id>` continues an ACP thread, and the reverse | shared session database | Works both ways. The UI shows the session ID with a copy button. | ✅ | M4 |
-| Working directory in the input border | `cwd` on `session/new` | Workspace shown in the thread header, chosen from `--root` | ✅ | M4 |
+| Working directory in the input border | `cwd` on `session/new` | Workspace in the input border, chosen with the workspace picker (folders under `--root`) | ✅ | M4 |
 | `/clear` | — | "New thread" in the same workspace | 🟡 New session, not cleared in place | M4 |
-| Several conversations at once | one turn per connection | One agent86 process per thread, shown in tabs | ✅ | M4 |
+| Several conversations at once | one turn per connection | One agent86 process per thread, shown in tabs (a dot shows working or waiting for approval) | ✅ | M4 |
+| Surviving a reload | `session/load` | Open threads are remembered in the browser; a reload reattaches to the same agent86 and reopens each session, waiting for a running turn to end first | ✅ | M4 |
 
 ## Information commands
 

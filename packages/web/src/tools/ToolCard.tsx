@@ -12,8 +12,8 @@ type Display = "awaiting" | "running" | "done" | "failed" | "declined";
 function display(entry: ToolEntry, awaiting: boolean): Display {
   if (awaiting) return "awaiting";
   if (entry.decision === "rejected" || entry.decision === "cancelled") return "declined";
-  if (entry.status === "failed" && entry.output.startsWith("Not executed: declined"))
-    return "declined";
+  // agent86's words for a call it did not run: "declined by user", "blocked by approval policy".
+  if (entry.status === "failed" && entry.output.startsWith("Not executed:")) return "declined";
   if (entry.status === "failed") return "failed";
   if (entry.status === "completed") return "done";
   return "running";

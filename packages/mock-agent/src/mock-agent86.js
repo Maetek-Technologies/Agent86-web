@@ -8,7 +8,11 @@
 //   MOCK_AGENT86_VERSION   the version to report (default 1.0.15)
 //   MOCK_AGENT86_NAME      the agentInfo name to report (default agent86)
 //   MOCK_AGENT86_RECORD    a file to append every received message to, one JSON per line
+//   MOCK_AGENT86_DB        the JSON file sessions are kept in (default: one in the temp directory),
+//                          so a later process can list and reload them, as agent86's database allows
+import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { agent, methods, ndJsonStream, RequestError } from "@agentclientprotocol/sdk";
@@ -38,8 +42,144 @@ function remember(method, params) {
 // agent86 writes its notes to stderr; the bridge shows them in the logs drawer.
 process.stderr.write(`mock-agent86 ${version}: started in ${process.cwd()}\n`);
 
-let nextSession = 1;
+// The project file's MCP servers, which agent86 starts only when the file is trusted. Like
+// agent86, say which settings were ignored, and leave the servers' tools out.
+const trusted = args.includes("--trust-project");
+/** @type {string[]} */
+const mcpServers = [];
+/** @type {string[]} */
+const untrustedKeys = [];
+try {
+  const projectConfig = readFileSync(join(process.cwd(), ".agent86", "config.toml"), "utf8");
+  let section = "";
+  for (const raw of projectConfig.split("\n")) {
+    const line = raw.trim();
+    const header = /^\[mcp\.servers\.([\w-]+)\]$/.exec(line);
+    if (header) {
+      section = header[1] ?? "";
+      mcpServers.push(section);
+      continue;
+    }
+    if (line.startsWith("[")) section = "";
+    const key = /^([\w-]+)\s*=/.exec(line)?.[1];
+    if (section && key) untrustedKeys.push(`mcp_servers.${section}.${key}`);
+  }
+} catch {
+  // No project file.
+}
+if (!trusted && untrustedKeys.length > 0) {
+  const count = untrustedKeys.length;
+  process.stderr.write(
+    `project config: ignored ${count} setting${count === 1 ? "" : "s"} that need${count === 1 ? "s" : ""} trust (${untrustedKeys.slice(0, 5).join(", ")}). ` +
+      "Start agent86 at a terminal to review the file, or pass --trust-project (or set AGENT86_TRUST_PROJECT=1).\n",
+  );
+}
+const TOOLS = [
+  "delegate",
+  "edit_file",
+  "list_dir",
+  ...(trusted ? mcpServers.map((name) => `mcp__${name}__mock_echo`) : []),
+  "python_exec",
+  "read_file",
+  "recall",
+  "remember",
+  "run_command",
+  "web_fetch",
+  "write_file",
+].sort();
+
 let nextCall = 1;
+
+// Sessions, kept in a file like agent86's database, so another process can list and load them.
+const DB = process.env.MOCK_AGENT86_DB ?? join(tmpdir(), "mock-agent86-sessions.json");
+/**
+ * @typedef {{ user: string; agent: string }} Turn
+ * @typedef {{ cwd?: string; title?: string; updatedAt: string; mode: string; model: string; turns: Turn[] }} Saved
+ */
+/** @returns {Record<string, Saved>} */
+function loadDb() {
+  try {
+    return JSON.parse(readFileSync(DB, "utf8"));
+  } catch {
+    return {};
+  }
+}
+/** @param {string} id @param {(saved: Saved) => void} change */
+function saveSession(id, change) {
+  const db = loadDb();
+  const saved = db[id] ?? {
+    updatedAt: new Date().toISOString(),
+    mode: "ask",
+    model: DEFAULT_MODEL,
+    turns: [],
+  };
+  change(saved);
+  saved.updatedAt = new Date().toISOString();
+  db[id] = saved;
+  writeFileSync(DB, JSON.stringify(db, null, 2));
+}
+
+const DEFAULT_MODEL = "mock:test-model";
+const MODELS = [DEFAULT_MODEL, "mock:cheap-model"];
+/** Sessions this process has open, with their settings. */
+const open = /** @type {Map<string, { mode: string; model: string }>} */ (new Map());
+
+/** The slash commands agent86 offers over ACP. */
+const COMMANDS = [
+  {
+    name: "mode",
+    description: "Show or set the approval mode for this session",
+    input: { hint: "ask, auto, or deny" },
+  },
+  {
+    name: "model",
+    description: "Show or switch the model for this session",
+    input: { hint: "provider:model" },
+  },
+  { name: "cost", description: "Show what this session has cost" },
+  { name: "tools", description: "List the tools the model can use" },
+];
+
+/** Tell the client which commands the session offers, as agent86 does after new and load. */
+/** @param {import("@agentclientprotocol/sdk").AgentContext} client @param {string} sessionId */
+function advertise(client, sessionId) {
+  setTimeout(() => {
+    void client.notify(methods.client.session.update, {
+      sessionId,
+      update: { sessionUpdate: "available_commands_update", availableCommands: COMMANDS },
+    });
+  }, 0);
+}
+
+/** The session's settings as agent86 offers them: the approval mode and the model, grouped. */
+/** @param {{ mode: string; model: string }} settings */
+function configOptions(settings) {
+  return [
+    {
+      id: "mode",
+      name: "Approval mode",
+      category: "mode",
+      type: /** @type {const} */ ("select"),
+      currentValue: settings.mode,
+      options: ["ask", "auto", "deny"].map((value) => ({ value, name: value })),
+      description: "ask: confirm each change; auto: run without asking; deny: refuse changes",
+    },
+    {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: /** @type {const} */ ("select"),
+      currentValue: settings.model,
+      options: [
+        {
+          group: "configured",
+          name: "Configured",
+          options: MODELS.map((value) => ({ value, name: value })),
+        },
+      ],
+    },
+  ];
+}
 
 /**
  * What agent86 would show for a call (its approval text) and do with it, in agent86's own formats:
@@ -140,9 +280,70 @@ const app = agent({ name: "mock-agent86" })
       authMethods: [],
     };
   })
-  .onRequest(methods.agent.session.new, ({ params }) => {
+  .onRequest(methods.agent.session.new, ({ params, client }) => {
     remember("session/new", params);
-    return { sessionId: `mock-session-${nextSession++}` };
+    const sessionId = `mock-${randomBytes(4).toString("hex")}`;
+    const settings = { mode: "ask", model: DEFAULT_MODEL };
+    open.set(sessionId, settings);
+    saveSession(sessionId, (saved) => (saved.cwd = params.cwd));
+    advertise(client, sessionId);
+    return { sessionId, configOptions: configOptions(settings) };
+  })
+  .onRequest(methods.agent.session.list, ({ params }) => {
+    remember("session/list", params);
+    const sessions = Object.entries(loadDb())
+      // Like agent86: a session with no recorded directory is listed under this one.
+      .filter(
+        ([, saved]) =>
+          saved.turns.length > 0 && (!params.cwd || (saved.cwd ?? process.cwd()) === params.cwd),
+      )
+      .sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt))
+      .map(([sessionId, saved]) => ({
+        sessionId,
+        cwd: saved.cwd ?? process.cwd(),
+        updatedAt: saved.updatedAt,
+        ...(saved.title ? { title: saved.title } : {}),
+      }));
+    return { sessions };
+  })
+  .onRequest(methods.agent.session.load, async ({ params, client }) => {
+    remember("session/load", params);
+    const saved = loadDb()[params.sessionId];
+    if (!saved) throw new RequestError(-32002, `Unknown session: ${params.sessionId}`);
+    const settings = { mode: saved.mode, model: saved.model };
+    open.set(params.sessionId, settings);
+    for (const turn of saved.turns) {
+      for (const [sessionUpdate, text] of /** @type {const} */ ([
+        ["user_message_chunk", turn.user],
+        ["agent_message_chunk", turn.agent],
+      ])) {
+        await client.notify(methods.client.session.update, {
+          sessionId: params.sessionId,
+          update: { sessionUpdate, content: { type: "text", text } },
+        });
+      }
+    }
+    advertise(client, params.sessionId);
+    return { configOptions: configOptions(settings) };
+  })
+  .onRequest(methods.agent.session.setConfigOption, ({ params }) => {
+    remember("session/set_config_option", params);
+    const settings = open.get(params.sessionId);
+    if (!settings) throw new RequestError(-32602, `Unknown session: ${params.sessionId}`);
+    const value = String(params.value);
+    if (params.configId === "model") {
+      if (!MODELS.includes(value))
+        throw new RequestError(-32602, `'${value}' is not one of the listed models`);
+      settings.model = value;
+    } else if (params.configId === "mode") {
+      if (!["ask", "auto", "deny"].includes(value))
+        throw new RequestError(-32602, `'${value}' is not a mode`);
+      settings.mode = value;
+    } else {
+      throw new RequestError(-32602, `Unknown option: ${params.configId}`);
+    }
+    saveSession(params.sessionId, (saved) => Object.assign(saved, settings));
+    return { configOptions: configOptions(settings) };
   })
   .onNotification(methods.agent.session.cancel, ({ params }) => {
     remember("session/cancel", params);
@@ -153,19 +354,42 @@ const app = agent({ name: "mock-agent86" })
     remember("session/prompt", params);
     const { sessionId } = params;
     cancelled.delete(sessionId);
+    const settings = open.get(sessionId) ?? { mode: "ask", model: DEFAULT_MODEL };
+    // A file link is shown to the model as "name (uri)", as agent86 does.
     const text = params.prompt
-      .map((block) => (block.type === "text" ? block.text : ""))
-      .join("")
+      .map((block) =>
+        block.type === "text"
+          ? block.text
+          : block.type === "resource_link"
+            ? `${block.name} (${block.uri})`
+            : "",
+      )
+      .join("\n")
       .trim();
+    let reply = "";
     /** @param {"agent_message_chunk" | "agent_thought_chunk"} kind @param {string} chunk */
-    const say = (kind, chunk) =>
-      client.notify(methods.client.session.update, {
+    const say = (kind, chunk) => {
+      if (kind === "agent_message_chunk") reply += chunk;
+      return client.notify(methods.client.session.update, {
         sessionId,
         update: { sessionUpdate: kind, content: { type: "text", text: chunk } },
       });
+    };
+    /** Save the turn, as agent86 does whether the turn finished or not. @param {"end_turn" | "cancelled"} stopReason */
+    const finish = (stopReason) => {
+      saveSession(sessionId, (saved) => {
+        saved.title ??= text.split("\n")[0]?.slice(0, 60);
+        saved.turns.push({ user: text, agent: reply });
+      });
+      return { stopReason };
+    };
 
     if (text === "/cost") {
       await say("agent_message_chunk", "steps 0  in 0  out 0 tok  cost n/a (unpriced model)");
+      return { stopReason: "end_turn" };
+    }
+    if (text === "/tools") {
+      await say("agent_message_chunk", `tools: ${TOOLS.join(", ")}`);
       return { stopReason: "end_turn" };
     }
     if (/fail/i.test(text)) {
@@ -194,7 +418,10 @@ const app = agent({ name: "mock-agent86" })
       });
       const { approval, run } = describe(tool);
       let allowed = true;
-      if (approval !== undefined) {
+      const guarded = approval?.startsWith("Warning:") ?? false;
+      if (approval !== undefined && settings.mode === "deny") {
+        allowed = false;
+      } else if (approval !== undefined && (settings.mode === "ask" || guarded)) {
         /** @type {import("@agentclientprotocol/sdk").RequestPermissionResponse} */
         const answer = await client.request(methods.client.session.requestPermission, {
           sessionId,
@@ -214,7 +441,15 @@ const app = agent({ name: "mock-agent86" })
         remember("permission answer", answer);
         allowed = answer.outcome.outcome === "selected" && answer.outcome.optionId === "allow-once";
       }
-      const outcome = allowed ? run() : { ok: false, text: "Not executed: declined by user." };
+      const outcome = allowed
+        ? run()
+        : {
+            ok: false,
+            text:
+              settings.mode === "deny"
+                ? "Not executed: blocked by approval policy (deny)."
+                : "Not executed: declined by user.",
+          };
       await client.notify(methods.client.session.update, {
         sessionId,
         update: {
@@ -224,22 +459,22 @@ const app = agent({ name: "mock-agent86" })
           content: [{ type: "content", content: { type: "text", text: outcome.text } }],
         },
       });
-      if (cancelled.has(sessionId)) return { stopReason: "cancelled" };
+      if (cancelled.has(sessionId)) return finish("cancelled");
       await say("agent_message_chunk", `Tool result: ${outcome.text.slice(0, 300)}`);
-      return { stopReason: "end_turn" };
+      return finish("end_turn");
     }
-    const { reasoning, content, delayMs } = script(text);
+    const { reasoning, content, delayMs } = script(text, settings.model.replace(/^mock:/, ""));
     for (const [kind, pieces] of /** @type {const} */ ([
       ["agent_thought_chunk", reasoning],
       ["agent_message_chunk", content],
     ])) {
       for (const piece of pieces) {
-        if (cancelled.has(sessionId)) return { stopReason: "cancelled" };
+        if (cancelled.has(sessionId)) return finish("cancelled");
         await say(kind, piece);
         await sleep(delayMs);
       }
     }
-    return { stopReason: cancelled.has(sessionId) ? "cancelled" : "end_turn" };
+    return finish(cancelled.has(sessionId) ? "cancelled" : "end_turn");
   });
 
 const stream = ndJsonStream(

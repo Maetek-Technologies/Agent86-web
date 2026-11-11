@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mockAgent86, recordFile, scriptedModel, startBridge, type Bridge } from "./bridge.ts";
+import {
+  mockAgent86,
+  recordFile,
+  scriptedModel,
+  startBridge,
+  type Bridge,
+  openThread,
+} from "./bridge.ts";
 
 async function send(page: Page, text: string) {
   const box = page.getByRole("textbox", { name: "Message agent86" });
@@ -21,7 +28,7 @@ function chatFlows(start: () => Promise<Bridge>, sessionHint: RegExp) {
   });
 
   test("streams a reply, with the reasoning folded once the answer starts", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "hello");
     await expect(page.getByLabel("You", { exact: true })).toHaveText("hello");
     await expect(replies(page)).toHaveText("Hello from the mock model. You said: hello");
@@ -35,7 +42,7 @@ function chatFlows(start: () => Promise<Bridge>, sessionHint: RegExp) {
   });
 
   test("renders Markdown safely", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "show me markdown");
     const reply = replies(page);
     await expect(reply.getByRole("heading", { name: "Mock report" })).toBeVisible();
@@ -51,7 +58,7 @@ function chatFlows(start: () => Promise<Bridge>, sessionHint: RegExp) {
   });
 
   test("Esc cancels a turn at its next safe point", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "go slow");
     await expect(status(page)).toContainText("Writing…");
     await page.keyboard.press("Escape");
@@ -67,7 +74,7 @@ function chatFlows(start: () => Promise<Bridge>, sessionHint: RegExp) {
   });
 
   test("the Stop button cancels too", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "slow please");
     await expect(status(page)).toContainText("Writing…");
     await page.getByRole("button", { name: "■ Stop" }).click();
@@ -75,7 +82,7 @@ function chatFlows(start: () => Promise<Bridge>, sessionHint: RegExp) {
   });
 
   test("shows a model error with the trace hint, and the next turn works", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "please fail");
     const alert = page.getByRole("alert");
     await expect(alert).toContainText("HTTP 400");
@@ -86,7 +93,7 @@ function chatFlows(start: () => Promise<Bridge>, sessionHint: RegExp) {
   });
 
   test("answers a slash command without the model", async ({ page }) => {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "/cost");
     await expect(replies(page)).toContainText("cost n/a");
   });
@@ -97,7 +104,7 @@ test.describe("chat with the mock agent", () => {
   chatFlows(async () => {
     record = recordFile();
     return startBridge(mockAgent86(), { MOCK_AGENT86_RECORD: record });
-  }, /agent86 trace show -s mock-session-1/);
+  }, /agent86 trace show -s mock-[0-9a-f]+/);
 });
 
 // Against the real binary, which calls a scripted OpenAI-compatible server instead of a model.
@@ -117,14 +124,21 @@ test("the mock agent receives session/cancel on Esc", async ({ page }) => {
   const record = recordFile();
   const bridge = await startBridge(mockAgent86(), { MOCK_AGENT86_RECORD: record });
   try {
-    await page.goto(bridge.url);
+    await openThread(page, bridge.url);
     await send(page, "go slow");
     await expect(status(page)).toContainText("Writing…");
     await page.keyboard.press("Escape");
     await expect(page.getByRole("note").filter({ hasText: "Cancelled." })).toBeVisible();
-    const methods = bridge.recorded().map((m) => m.method);
-    expect(methods).toEqual(["initialize", "session/new", "session/prompt", "session/cancel"]);
-    expect(bridge.recorded()[1]?.params).toMatchObject({ cwd: bridge.workspace, mcpServers: [] });
+    // The sidebar's session list runs its own short-lived agent86; leave its messages out.
+    const methods = bridge
+      .recorded()
+      .map((m) => m.method)
+      .filter((m) => m !== "initialize" && m !== "session/list");
+    expect(methods).toEqual(["session/new", "session/prompt", "session/cancel"]);
+    expect(bridge.recorded().find((m) => m.method === "session/new")?.params).toMatchObject({
+      cwd: bridge.workspace,
+      mcpServers: [],
+    });
   } finally {
     await bridge.stop();
   }
