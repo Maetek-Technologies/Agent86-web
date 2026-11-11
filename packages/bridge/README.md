@@ -72,7 +72,7 @@ agent86-web can make agent86 edit files and run commands, so it is locked down:
 - Threads can only run under the `--root` folders.
 - A page cannot add MCP servers.
 
-agent86's own approval gate, sandbox, and guardrails apply unchanged. The threat model is in [docs/SECURITY.md](https://github.com/tdfleming/Agent86-web/blob/main/docs/SECURITY.md).
+agent86's own approval gate, sandbox, and guardrails apply unchanged. The threat model is in [docs/SECURITY.md](https://github.com/Maetek-Technologies/Agent86-web/blob/main/docs/SECURITY.md).
 
 ## Troubleshooting
 
