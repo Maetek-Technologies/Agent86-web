@@ -127,6 +127,13 @@ async function main(): Promise<number> {
   const here = dirname(fileURLToPath(import.meta.url));
   const publicDir = values.static ?? join(here, "public");
 
+  let stopRequested: () => void = () => undefined;
+  const stopped = new Promise<"signal" | "browser">((resolve) => {
+    process.once("SIGINT", () => resolve("signal"));
+    process.once("SIGTERM", () => resolve("signal"));
+    stopRequested = () => resolve("browser");
+  });
+
   const bridge = await startBridge({
     roots,
     host: values.host,
@@ -137,6 +144,7 @@ async function main(): Promise<number> {
     maxAgents,
     idleTimeoutMs,
     updateCheck: !values["no-update-check"] && !updateCheckDisabled() && !values["dev-origin"],
+    onShutdownRequested: () => stopRequested(),
     log: (line) => process.stderr.write(`${line}\n`),
   });
 
@@ -144,15 +152,11 @@ async function main(): Promise<number> {
     `agent86-web ${BRIDGE_VERSION} (agent86 ${version})\n` +
       `Workspaces: ${roots.join(", ")}\n` +
       `Open: ${bridge.url}\n` +
-      `The link works once and expires in 5 minutes. Press Ctrl+C to stop.\n`,
+      `The link works once and expires in 5 minutes. Press Ctrl+C (or Quit in the page) to stop.\n`,
   );
   if (!values["no-open"]) openBrowser(bridge.url);
 
-  await new Promise<void>((resolve) => {
-    const stop = () => resolve();
-    process.once("SIGINT", stop);
-    process.once("SIGTERM", stop);
-  });
+  if ((await stopped) === "browser") process.stdout.write("Stopped from the browser.\n");
   await bridge.close();
   return 0;
 }

@@ -53,7 +53,8 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 
 | Terminal feature | ACP | Web UI | Status | Milestone |
 |---|---|---|---|---|
-| `/sessions`, `/resume` picker | `session/list`, `session/load` (replay) | Sidebar of sessions per workspace, newest first. Sessions started at a terminal have no recorded directory, so agent86 lists them under every workspace | ✅ | M4 |
+| `/sessions`, `/resume` picker | `session/list`, `session/load` (replay) | Sidebar of sessions per workspace, newest first, resizable. With agent86 1.0.17, each workspace lists its own sessions; before 1.0.17, sessions started at a terminal have no recorded directory, so agent86 lists them under every workspace | ✅ | M4, M6 |
+| `/rename` (agent86 1.0.17) | slash command, answered without a turn, then `session_info_update` | Rename from the tab (double-click or F2) or the sidebar. Sent to agent86 quietly when the session is idle; with older agent86 versions, kept in the browser | ✅ | M6 |
 | `--resume <id>` continues an ACP thread, and the reverse | shared session database | Works both ways. The UI shows the session ID with a copy button. | ✅ | M4 |
 | Working directory in the input border | `cwd` on `session/new` | Workspace in the input border, chosen with the workspace picker (folders under `--root`) | ✅ | M4 |
 | `/clear` | — | "New thread" in the same workspace | 🟡 New session, not cleared in place | M4 |
@@ -69,7 +70,7 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 | `/help` | — | Local help panel listing the available commands | ✅ |
 | `/skills`, `/memory`, `/limits` | not in agent86's ACP set | — | ⛔ (wishlist) |
 | `/update`, update notice | not over ACP | The bridge checks npm daily for newer agent86 and agent86-web releases; the header and About show a notice with the install command | ✅ M5 (installing is left to you) |
-| `/exit` | — | Close the tab or thread | ✅ |
+| `/exit` | — | Close the tab or thread. ⏻ Quit stops agent86-web | ✅ (Quit: M6) |
 
 ## Status line
 
@@ -97,5 +98,5 @@ These are presentation features with no terminal counterpart. None of them chang
 
 - Several threads side by side, and a persistent session sidebar
 - Rich diffs, collapsible sections, copy buttons, and links to files
-- A log drawer showing agent86's stderr notes for each thread
+- A log drawer showing agent86's stderr notes for each thread, plus agent86-web's own connection events
 - Reconnect after a reload while the agent keeps working

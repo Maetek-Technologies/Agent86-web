@@ -101,6 +101,8 @@ export interface SessionState {
   turn: TurnState;
   configOptions: SessionConfigOption[];
   commands: AvailableCommand[];
+  /** The session's title, once agent86 announces one (`session_info_update`, e.g. after `/rename`). */
+  title?: string;
   /** Permission requests waiting for an answer, oldest first. */
   permissions: PendingPermission[];
   /** Why the connection ended, once it has. */
@@ -356,6 +358,10 @@ export function applyUpdate(state: SessionState, update: SessionUpdate, now: num
       return { ...state, commands: update.availableCommands };
     case "config_option_update":
       return { ...state, configOptions: update.configOptions };
+    case "session_info_update":
+      return typeof update.title === "string" && update.title
+        ? { ...state, title: update.title }
+        : state;
     default:
       return state;
   }

@@ -51,7 +51,7 @@ function threadFlows(flavor: Flavor) {
     await flavor.terminalSession(bridge, "hello from the terminal");
     await page.goto(bridge.url);
     const sessions = page.getByRole("navigation", { name: "Sessions" });
-    await sessions.getByRole("button", { name: /hello from the terminal/ }).click();
+    await sessions.getByRole("button", { name: /^hello from the terminal/ }).click();
     await expect(visible(page).getByLabel("You", { exact: true })).toHaveText(
       "hello from the terminal",
     );

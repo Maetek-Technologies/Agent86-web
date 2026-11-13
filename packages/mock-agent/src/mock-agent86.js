@@ -2,7 +2,8 @@
 // A stand-in for the `agent86` binary, for agent86-web's tests.
 //
 //   mock-agent86 --version     prints "agent86 <version>", as agent86 does
-//   mock-agent86 [...] acp     speaks ACP v1 on stdio, answering like agent86 1.0.15
+//   mock-agent86 [...] acp     speaks ACP v1 on stdio, answering like agent86 1.0.15 (or 1.0.17, with
+//                              MOCK_AGENT86_VERSION=1.0.17: /rename, per-directory lists)
 //
 // Environment:
 //   MOCK_AGENT86_VERSION   the version to report (default 1.0.15)
@@ -20,6 +21,9 @@ import { script, toolFor } from "./mock-openai.js";
 
 const version = process.env.MOCK_AGENT86_VERSION ?? "1.0.15";
 const name = process.env.MOCK_AGENT86_NAME ?? "agent86";
+/** agent86 1.0.17 added `/rename` and stopped listing sessions of unknown directory under every one. */
+const [major = 0, minor = 0, patch = 0] = version.split(".").map(Number);
+const v1017 = major > 1 || (major === 1 && (minor > 0 || patch >= 17));
 const record = process.env.MOCK_AGENT86_RECORD;
 const args = process.argv.slice(2);
 
@@ -138,6 +142,15 @@ const COMMANDS = [
   },
   { name: "cost", description: "Show what this session has cost" },
   { name: "tools", description: "List the tools the model can use" },
+  ...(v1017
+    ? [
+        {
+          name: "rename",
+          description: "Name this session",
+          input: { hint: "title" },
+        },
+      ]
+    : []),
 ];
 
 /** Tell the client which commands the session offers, as agent86 does after new and load. */
@@ -292,10 +305,12 @@ const app = agent({ name: "mock-agent86" })
   .onRequest(methods.agent.session.list, ({ params }) => {
     remember("session/list", params);
     const sessions = Object.entries(loadDb())
-      // Like agent86: a session with no recorded directory is listed under this one.
+      // Like agent86 before 1.0.17, a session with no recorded directory is listed under this
+      // one; from 1.0.17 it is left out of a filtered list.
       .filter(
         ([, saved]) =>
-          saved.turns.length > 0 && (!params.cwd || (saved.cwd ?? process.cwd()) === params.cwd),
+          saved.turns.length > 0 &&
+          (!params.cwd || (saved.cwd ?? (v1017 ? undefined : process.cwd())) === params.cwd),
       )
       .sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt))
       .map(([sessionId, saved]) => ({
@@ -386,6 +401,25 @@ const app = agent({ name: "mock-agent86" })
 
     if (text === "/cost") {
       await say("agent_message_chunk", "steps 0  in 0  out 0 tok  cost n/a (unpriced model)");
+      return { stopReason: "end_turn" };
+    }
+    const rename = v1017 ? /^\/rename(?:\s+([\s\S]*))?$/.exec(text) : null;
+    if (rename) {
+      // As agent86 1.0.17: answered without a turn, not saved in the conversation.
+      const title = (rename[1] ?? "").split("\n")[0]?.trim().slice(0, 200) ?? "";
+      if (!title) {
+        await say(
+          "agent_message_chunk",
+          `session: ${loadDb()[sessionId]?.title ?? "(no name yet)"} (usage: /rename <title>)`,
+        );
+        return { stopReason: "end_turn" };
+      }
+      saveSession(sessionId, (saved) => (saved.title = title));
+      await say("agent_message_chunk", `renamed session to: ${title}`);
+      await client.notify(methods.client.session.update, {
+        sessionId,
+        update: { sessionUpdate: "session_info_update", title },
+      });
       return { stopReason: "end_turn" };
     }
     if (text === "/tools") {

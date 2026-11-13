@@ -63,7 +63,7 @@ describe("/api/info", () => {
       publicDir: tmpdir(),
       stateDir: state(),
       updateCheck: true,
-      latestVersion: async (pkg) => (pkg === "agent86-web" ? "0.2.0" : "1.0.15"),
+      latestVersion: async (pkg) => (pkg === "agent86-web" ? "99.0.0" : "1.0.15"),
     });
     try {
       const origin = `http://127.0.0.1:${bridge.port}`;
@@ -81,7 +81,7 @@ describe("/api/info", () => {
         ).json()) as typeof info;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      expect(info.updates).toEqual({ agent86Web: "0.2.0" });
+      expect(info.updates).toEqual({ agent86Web: "99.0.0" });
     } finally {
       await bridge.close();
     }

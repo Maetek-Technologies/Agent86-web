@@ -1,6 +1,6 @@
 # UI design
 
-The web UI keeps the terminal interface's information and behavior (see [FEATURE_PARITY.md](FEATURE_PARITY.md)), and uses the screen space a browser offers. It does not imitate the terminal's look, but nods to agent86's identity: the detective mascot, the `AGENT 86` wordmark, and a monospace accent.
+The web UI keeps the terminal interface's information and behavior (see [FEATURE_PARITY.md](FEATURE_PARITY.md)), and uses the screen space a browser offers. It does not imitate the terminal's look, but nods to agent86's identity: the detective mascot, the `AGENT86` wordmark, and a monospace accent.
 
 ## 1. Principles
 
@@ -14,7 +14,7 @@ The web UI keeps the terminal interface's information and behavior (see [FEATURE
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│ 🕵 AGENT 86 web   [~/code/app ▾]   ● 2 agents running        agent86 1.0.15│  top bar
+│ 🕵 AGENT86 web    [~/code/app ▾]   ● 2 agents running     agent86 1.0.17 ⏻│  top bar
 ├──────────────┬─────────────────────────────────────────────────────────────┤
 │ SESSIONS     │ [fix readme ×] [refactor auth ×] [+]                        │  thread tabs
 │ ~/code/app   ├─────────────────────────────────────────────────────────────┤
@@ -41,6 +41,10 @@ The web UI keeps the terminal interface's information and behavior (see [FEATURE
 ```
 
 On narrow screens (under about 768 px), the sidebar collapses into a drawer and the tabs become a dropdown.
+
+- **Sessions panel:** drag its right edge to resize it (180–560 px; arrow keys when the edge has focus, double-click to reset to 256 px). Its width and whether it is shown are remembered in the browser.
+- **Renaming:** double-click a tab's name (or press F2 on it), or use the pencil on a session row. With agent86 1.0.17 or later the name is saved in agent86 with `/rename`, sent quietly when the session is idle and kept out of the transcript; with older versions it is kept in the browser.
+- **Top bar:** the version button opens **Settings & about** (versions, update notices, the approval mode for new threads, trusted projects). ⏻ quits agent86-web after a confirmation that names running turns and waiting approvals; the tab then closes, or says that agent86-web has stopped.
 
 ## 3. Screens
 
@@ -78,7 +82,7 @@ On narrow screens (under about 768 px), the sidebar collapses into a drawer and 
 
 ### 3.5 Logs drawer
 
-agent86's stderr notes for this thread's process: MCP startup, ignored untrusted settings, memory notes. They show monospace, newest at the bottom, with a copy button. A notice badge appears on the drawer when an untrusted-settings note is seen.
+agent86's stderr notes for this thread's process: MCP startup, ignored untrusted settings, memory notes. agent86 writes these only for problems and notable events, so agent86-web adds its own connection events, dimmed and marked `[agent86-web]` (connected, session started or reopened, reconnecting and why, restarted after trust, renamed, mode applied). They show monospace, newest at the bottom, with a copy button. The toggle shows the line count, dimmed at zero, and a notice badge when an untrusted-settings note is seen.
 
 ## 4. Transcript elements
 

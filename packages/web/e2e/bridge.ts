@@ -32,6 +32,10 @@ export interface Bridge {
   recorded: () => { method: string; params: Record<string, unknown> }[];
   stderr: () => string;
   stop: () => Promise<void>;
+  /** Resolves with the exit code once agent86-web exits by itself (Quit in the page). */
+  exited: () => Promise<number | null>;
+  /** What agent86-web printed on stdout. */
+  stdout: () => string;
 }
 
 /** A single-executable command that runs the mock agent, as `agent86` would be run. */
@@ -106,6 +110,12 @@ export async function startBridge(
       }
     },
     stderr: () => stderr,
+    stdout: () => stdout,
+    exited: () =>
+      new Promise((resolve) => {
+        if (child.exitCode !== null) return resolve(child.exitCode);
+        child.once("exit", (code) => resolve(code));
+      }),
     stop: () =>
       new Promise((resolve) => {
         if (child.exitCode !== null) return resolve();

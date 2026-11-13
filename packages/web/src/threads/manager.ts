@@ -8,7 +8,15 @@ import {
 } from "@agent86-web/acp-client";
 import { acpUrl } from "../api.ts";
 import { newThreadId } from "../token.ts";
-import { KEYS, load, save } from "./storage.ts";
+import {
+  cleanTitle,
+  KEYS,
+  load,
+  loadPreferences,
+  localTitles,
+  save,
+  type ModePreference,
+} from "./storage.ts";
 
 export interface ThreadMeta {
   id: string;
@@ -16,6 +24,10 @@ export interface ThreadMeta {
   /** The agent86 session, once there is one; reopened with `session/load` after a reload. */
   sessionId?: string;
   title: string;
+  /** The user named the thread, so its first prompt does not. */
+  renamed?: boolean;
+  /** The preferred approval mode has been applied (once, when the thread was first opened). */
+  modeApplied?: boolean;
 }
 
 export type ThreadPhase =
@@ -65,12 +77,27 @@ function openSocket(url: string): Promise<WebSocket> {
   });
 }
 
+/** A line for the logs drawer, from agent86-web itself rather than agent86. */
+function event(text: string): string {
+  const time = new Date().toLocaleTimeString([], { hour12: false });
+  return `[agent86-web] ${time} ${text}`;
+}
+
+const MAX_EVENTS = 200;
+
 export class ThreadHandle {
   private snapshot: ThreadSnapshot;
   private socket: WebSocket | undefined;
   private closedByUs = false;
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  /** agent86-web's own notes for this thread, replayed into each new connection's logs. */
+  private readonly events: string[] = [];
+  /** Stops watching the current session. */
+  private unwatch: (() => void) | undefined;
+  /** A name being sent to agent86 with `/rename`, or one agent86 refused on this connection. */
+  private renaming = false;
+  private renameRefused: string | undefined;
 
   constructor(
     meta: ThreadMeta,
@@ -92,11 +119,115 @@ export class ThreadHandle {
     this.changed();
   }
 
-  /** Rename the thread (its first prompt names it). */
+  private setMeta(next: Partial<ThreadMeta>): void {
+    this.update({ meta: { ...this.snapshot.meta, ...next } });
+  }
+
+  /** Add a line to the thread's logs drawer. */
+  private log(text: string): void {
+    const line = event(text);
+    this.events.push(line);
+    if (this.events.length > MAX_EVENTS) this.events.shift();
+    this.snapshot.client?.note(line);
+  }
+
+  /** Name the thread after its first prompt, unless the user has named it. */
   setTitle(title: string): void {
-    if (title && title !== this.snapshot.meta.title) {
-      this.update({ meta: { ...this.snapshot.meta, title } });
+    const meta = this.snapshot.meta;
+    if (title && !meta.renamed && title !== meta.title) this.setMeta({ title });
+  }
+
+  /**
+   * The user renamed the thread. The name is kept in this browser at once, and given to agent86
+   * with `/rename` when it offers the command and the session is idle.
+   */
+  rename(text: string): void {
+    const title = cleanTitle(text);
+    if (!title) return;
+    this.setMeta({ title, renamed: true });
+    const sessionId = this.snapshot.meta.sessionId;
+    if (sessionId) {
+      this.renameRefused = undefined;
+      localTitles.set(sessionId, title);
+      this.syncTitle();
     }
+  }
+
+  /** Send a name agent86 does not have yet, if it can take it now. */
+  private syncTitle(): void {
+    const session = this.snapshot.session;
+    const sessionId = this.snapshot.meta.sessionId;
+    if (!session || !sessionId || this.renaming) return;
+    const title = localTitles.pending(sessionId);
+    if (!title || title === this.renameRefused) return;
+    const state = session.getState();
+    if (state.turn.running || state.closed || !session.hasCommand("rename")) return;
+    this.renaming = true;
+    session
+      .command(`/rename ${title}`)
+      .then(
+        () => {
+          localTitles.synced(sessionId, title);
+          this.log(`renamed the session in agent86: ${title}`);
+        },
+        (error: unknown) => {
+          this.renameRefused = title;
+          this.log(`agent86 did not take the name (kept in this browser): ${message(error)}`);
+        },
+      )
+      .finally(() => {
+        this.renaming = false;
+        this.syncTitle();
+      });
+  }
+
+  /** Follow a ready session: names agent86 announces, renames waiting for an idle moment. */
+  private watch(session: AgentSession): void {
+    const modePreference = loadPreferences().mode;
+    this.unwatch?.();
+    let announced = session.getState().title;
+    let modeChecked = false;
+    const check = () => {
+      const state = session.getState();
+      if (state.title && state.title !== announced) {
+        announced = state.title;
+        const sessionId = this.snapshot.meta.sessionId;
+        if (!sessionId || !localTitles.pending(sessionId)) this.setMeta({ title: state.title });
+      }
+      if (!modeChecked && !this.snapshot.meta.modeApplied) {
+        modeChecked = this.applyMode(session, modePreference);
+      }
+      this.syncTitle();
+    };
+    this.unwatch = session.subscribe(check);
+    check();
+  }
+
+  /**
+   * Put a thread opened for the first time in the preferred approval mode. Returns whether the
+   * question is settled (it waits while agent86 has not sent its options).
+   */
+  private applyMode(session: AgentSession, preference: ModePreference): boolean {
+    if (preference === "default") {
+      this.setMeta({ modeApplied: true });
+      return true;
+    }
+    const option = session.getState().configOptions.find((o) => o.id === "mode");
+    if (!option) return false;
+    this.setMeta({ modeApplied: true });
+    const offered =
+      "options" in option &&
+      (option.options as { value?: string }[]).some((choice) => choice.value === preference);
+    const current = "currentValue" in option ? String(option.currentValue) : undefined;
+    if (!offered) {
+      this.log(`agent86 does not offer the preferred mode ${preference}`);
+    } else if (current !== preference) {
+      session.setConfigOption("mode", preference).then(
+        () => this.log(`approval mode set to ${preference} (your default)`),
+        (error: unknown) => this.log(`could not set the mode to ${preference}: ${message(error)}`),
+      );
+    }
+    return true;
   }
 
   /**
@@ -106,6 +237,8 @@ export class ThreadHandle {
   async connect(fresh = false): Promise<void> {
     clearTimeout(this.retryTimer);
     this.closedByUs = false;
+    this.unwatch?.();
+    this.unwatch = undefined;
     this.snapshot.client?.close();
     const meta = this.snapshot.meta;
     this.update({
@@ -113,6 +246,8 @@ export class ThreadHandle {
       error: undefined,
       failedAt: undefined,
     });
+    if (fresh) this.log("restarting agent86 with this project's settings");
+    else this.log(this.attempt > 0 ? `reconnecting (attempt ${this.attempt})` : "connecting");
     let socket: WebSocket;
     try {
       socket = await openSocket(acpUrl(meta.id, meta.workspace, fresh));
@@ -123,11 +258,14 @@ export class ThreadHandle {
     socket.addEventListener("close", (event) => this.onClose(socket, event));
     try {
       const client = await Agent86Client.connect(webSocketStream(socket));
+      for (const line of this.events) client.note(line);
       if (!client.compatibility.ok) {
         this.update({ client, phase: "failed", error: client.compatibility.problems.join(" ") });
+        this.log(`agent86 is not compatible: ${client.compatibility.problems.join(" ")}`);
         return;
       }
       this.update({ client });
+      this.log(`connected to agent86 ${client.init.agentInfo?.version ?? "(unknown version)"}`);
       let session: AgentSession;
       if (meta.sessionId) {
         this.update({ phase: "loading" });
@@ -135,31 +273,46 @@ export class ThreadHandle {
           waitForTurn: true,
           onWaiting: () => this.update({ phase: "waiting-turn" }),
         });
+        this.log(`reopened session ${session.id}`);
       } else {
         this.update({ phase: "starting" });
         try {
           session = await client.newSession(meta.workspace);
         } catch (error) {
           this.update({ phase: "failed", error: message(error), failedAt: "starting" });
+          this.log(`agent86 could not start a session: ${message(error)}`);
           return;
         }
+        this.log(`started session ${session.id}`);
       }
       this.attempt = 0;
+      const local = localTitles.get(session.id);
+      const renamed = this.snapshot.meta.renamed;
+      // A name given before the session existed, or from the sessions list, waits for agent86.
+      if (renamed && !local && !meta.sessionId)
+        localTitles.set(session.id, this.snapshot.meta.title);
       this.update({
         session,
         phase: "ready",
-        meta: { ...this.snapshot.meta, sessionId: session.id },
+        meta: {
+          ...this.snapshot.meta,
+          sessionId: session.id,
+          ...(local ? { title: local, renamed: true } : {}),
+        },
       });
+      this.watch(session);
     } catch (error) {
       if (error instanceof TurnRunningError) return this.failOrRetry(message(error), "loading");
       if (this.socket !== socket) return;
       this.update({ phase: "failed", error: message(error), failedAt: "loading" });
+      this.log(`could not open the session: ${message(error)}`);
     }
   }
 
   private onClose(socket: WebSocket, event: CloseEvent): void {
     if (this.socket !== socket || this.closedByUs) return;
     this.socket = undefined;
+    this.log(`connection closed (${event.code}${event.reason ? `: ${event.reason}` : ""})`);
     if (event.code === REPLACED) {
       this.update({ phase: "taken", error: "This thread was opened in another tab or window." });
       return;
@@ -177,10 +330,12 @@ export class ThreadHandle {
     this.attempt++;
     if (this.attempt > 8) {
       this.update({ phase: "failed", error, ...(failedAt ? { failedAt } : {}) });
+      this.log(`gave up: ${error}`);
       return;
     }
     this.update({ phase: "reconnecting", error });
     const delay = Math.min(RECONNECT_MAX_MS, 500 * 2 ** (this.attempt - 1));
+    this.log(`${error} Trying again in ${(delay / 1000).toFixed(1)} s.`);
     this.retryTimer = setTimeout(() => void this.connect(), delay);
   }
 
@@ -188,6 +343,8 @@ export class ThreadHandle {
   close(): void {
     this.closedByUs = true;
     clearTimeout(this.retryTimer);
+    this.unwatch?.();
+    this.unwatch = undefined;
     this.snapshot.client?.close();
     this.socket?.close(1000, "thread closed");
     this.socket = undefined;
@@ -243,8 +400,31 @@ export class ThreadManager {
       return open.id;
     }
     const id = newThreadId();
-    this.add({ id, workspace, sessionId, title }, true);
+    const local = localTitles.get(sessionId);
+    this.add(
+      { id, workspace, sessionId, title: local ?? title, ...(local ? { renamed: true } : {}) },
+      true,
+    );
     return id;
+  }
+
+  /** Rename an open thread. */
+  rename(id: string, title: string): void {
+    this.handle(id)?.rename(title);
+  }
+
+  /**
+   * Rename a saved session from the sessions list: through its tab if it is open, otherwise kept
+   * here and given to agent86 the next time the session is opened.
+   */
+  renameSession(sessionId: string, title: string): void {
+    const open = this.handles.find((h) => h.getSnapshot().meta.sessionId === sessionId);
+    if (open) {
+      open.rename(title);
+      return;
+    }
+    const clean = cleanTitle(title);
+    if (clean) localTitles.set(sessionId, clean);
   }
 
   activate(id: string): void {

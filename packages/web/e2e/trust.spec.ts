@@ -80,7 +80,7 @@ function trustFlows(start: () => Promise<Bridge>) {
     const trusted = page.getByRole("region", { name: "Trusted projects" });
     await expect(trusted).toContainText(join(bridge.workspace, ".agent86", "config.toml"));
     await trusted.getByRole("button", { name: "Revoke" }).click();
-    await expect(trusted).toContainText("None.");
+    await expect(trusted).toContainText("None yet.");
   });
 
   test("Cancel leaves the project untrusted", async ({ page }) => {

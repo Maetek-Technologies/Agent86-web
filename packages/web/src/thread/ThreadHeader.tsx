@@ -1,5 +1,5 @@
 import type { Agent86Client, AgentSession } from "@agent86-web/acp-client";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type ConfigOption = ReturnType<AgentSession["getState"]>["configOptions"][number];
 type Choice = { value: string; name: string };
@@ -60,6 +60,47 @@ function ConfigSelect({
   );
 }
 
+function CopyLogs({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      className="absolute top-1 right-6 rounded border border-border bg-panel px-1.5 text-xs text-muted hover:text-text"
+    >
+      {copied ? "copied" : "copy"}
+    </button>
+  );
+}
+
+/** agent86's notes, with agent86-web's own events dimmed; newest at the bottom, kept in view. */
+function LogLines({ lines }: { lines: string[] }) {
+  const ref = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+  return (
+    <pre
+      ref={ref}
+      className="max-h-48 overflow-auto rounded border border-border bg-panel-2 p-2 font-mono text-xs whitespace-pre-wrap"
+    >
+      {lines.length === 0
+        ? "Nothing yet. agent86 writes notes here only about problems and notable events (MCP servers, memory, ignored project settings), so a healthy thread is usually quiet."
+        : lines.map((line, i) => (
+            <div key={i} className={line.startsWith("[agent86-web]") ? "text-muted" : ""}>
+              {line}
+            </div>
+          ))}
+    </pre>
+  );
+}
+
 /** The thread's settings and tools: model, approval mode, cost, logs (docs/UI_DESIGN.md §3.3). */
 export function ThreadHeader({
   session,
@@ -112,10 +153,20 @@ export function ThreadHeader({
             type="button"
             aria-expanded={showLogs}
             onClick={() => setShowLogs((v) => !v)}
-            className="rounded px-1.5 py-0.5 text-muted hover:bg-panel-2 hover:text-text"
+            title={
+              logs.untrusted
+                ? "agent86 ignored some of this project's settings"
+                : "agent86's notes and connection events"
+            }
+            className={`rounded px-1.5 py-0.5 hover:bg-panel-2 hover:text-text ${logs.lines.length ? "text-muted" : "text-muted/50"}`}
           >
-            logs
-            {logs.lines.length > 0 && <span className="ml-1 font-mono">({logs.lines.length})</span>}
+            logs <span className="font-mono">({logs.lines.length})</span>
+            {logs.untrusted && (
+              <span
+                aria-label="ignored project settings"
+                className="ml-1 inline-block h-2 w-2 rounded-full bg-warn align-middle"
+              />
+            )}
           </button>
         </div>
       </div>
@@ -125,10 +176,9 @@ export function ThreadHeader({
         </div>
       )}
       {showLogs && (
-        <div className="mx-auto max-w-3xl px-4 pb-2" aria-label="agent86 logs">
-          <pre className="max-h-48 overflow-auto rounded border border-border bg-panel-2 p-2 font-mono text-xs whitespace-pre-wrap">
-            {logs.lines.length ? logs.lines.join("\n") : "agent86 has not written any notes."}
-          </pre>
+        <div className="relative mx-auto max-w-3xl px-4 pb-2" aria-label="agent86 logs">
+          {logs.lines.length > 0 && <CopyLogs text={logs.lines.join("\n")} />}
+          <LogLines lines={logs.lines} />
         </div>
       )}
     </div>
