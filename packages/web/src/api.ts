@@ -165,3 +165,8 @@ export async function listTrusted(): Promise<TrustRecord[]> {
 export async function revokeTrust(path: string): Promise<void> {
   await sendJson("DELETE", "/api/trust", { path });
 }
+
+/** Stop agent86-web: every agent86 it runs, then the bridge itself. */
+export async function shutdown(): Promise<void> {
+  await sendJson("POST", "/api/shutdown", {});
+}

@@ -127,6 +127,11 @@ export class AgentSession {
   async prompt(text: string, links: FileLink[] = []): Promise<void> {
     if (this.state.turn.running) throw new Error("A turn is already running.");
     if (this.state.closed) throw new Error("The connection to agent86 is closed.");
+    // agent86 refuses a prompt while a quiet command is still being answered.
+    if (this.quiet) {
+      await this.quiet.done.catch(() => undefined);
+      if (this.state.turn.running) throw new Error("A turn is already running.");
+    }
     this.set(startTurn(this.state, text, this.now()));
     try {
       const prompt: ContentBlock[] = [
@@ -213,9 +218,52 @@ export class AgentSession {
     }
   }
 
+  /** Whether agent86 offers the slash command `name` (without the slash) in this session. */
+  hasCommand(name: string): boolean {
+    return this.state.commands.some((command) => command.name === name);
+  }
+
+  /**
+   * Run one of agent86's own slash commands (such as `/rename`) without showing it in the
+   * transcript: agent86 answers these without a model turn and does not save them. Resolves with
+   * agent86's reply text. Refuses while a turn or another command is running.
+   */
+  async command(text: string): Promise<string> {
+    if (this.state.turn.running || this.quiet) throw new Error("agent86 is busy.");
+    if (this.state.closed) throw new Error("The connection to agent86 is closed.");
+    const quiet = { reply: "", done: Promise.resolve() };
+    this.quiet = quiet;
+    const request = this.connection.agent.request(methods.agent.session.prompt, {
+      sessionId: this.id,
+      prompt: [{ type: "text", text }],
+    });
+    quiet.done = request.then(() => undefined);
+    try {
+      await request;
+      return quiet.reply.trim();
+    } finally {
+      this.quiet = undefined;
+    }
+  }
+
+  /** The quiet command being answered, whose message chunks are kept out of the transcript. */
+  private quiet: { reply: string; done: Promise<void> } | undefined;
+
   /** @internal Called by the client for this session's updates. */
   handleUpdate(notification: SessionNotification): void {
-    this.set(applyUpdate(this.state, notification.update, this.now()));
+    const { update } = notification;
+    if (this.quiet) {
+      if (update.sessionUpdate === "agent_message_chunk") {
+        this.quiet.reply += update.content.type === "text" ? update.content.text : "";
+        return;
+      }
+      if (
+        update.sessionUpdate === "user_message_chunk" ||
+        update.sessionUpdate === "agent_thought_chunk"
+      )
+        return;
+    }
+    this.set(applyUpdate(this.state, update, this.now()));
   }
 
   /**
@@ -280,6 +328,11 @@ export class Agent86Client {
     this.logListeners.add(listener);
     return () => this.logListeners.delete(listener);
   };
+
+  /** Add a line of the client's own to the logs (connection events, for example). */
+  note(line: string): void {
+    this.addLog(line);
+  }
 
   private addLog(line: string): void {
     const lines = [...this.logs.lines, line].slice(-MAX_LOG_LINES);

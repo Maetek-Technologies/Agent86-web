@@ -1,5 +1,6 @@
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { ThreadSnapshot } from "../threads/manager.ts";
+import { InlineRename } from "./InlineRename.tsx";
 
 const NONE = () => () => undefined;
 
@@ -17,13 +18,16 @@ function Tab({
   active,
   onActivate,
   onClose,
+  onRename,
 }: {
   thread: ThreadSnapshot;
   active: boolean;
   onActivate: () => void;
   onClose: () => void;
+  onRename: (title: string) => void;
 }) {
   const activity = useActivity(thread);
+  const [editing, setEditing] = useState(false);
   return (
     <div
       role="tab"
@@ -40,14 +44,34 @@ function Tab({
         }
         className={`h-2 w-2 shrink-0 rounded-full ${activity === "approval" ? "bg-warn" : activity === "running" ? "animate-pulse bg-accent" : "bg-transparent"}`}
       />
-      <button
-        type="button"
-        onClick={onActivate}
-        className="min-w-0 truncate"
-        title={thread.meta.workspace}
-      >
-        {thread.meta.title}
-      </button>
+      {editing ? (
+        <InlineRename
+          initial={thread.meta.title}
+          label="Thread name"
+          className="w-40"
+          onSave={(title) => {
+            setEditing(false);
+            onRename(title);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={onActivate}
+          onDoubleClick={() => setEditing(true)}
+          onKeyDown={(event) => {
+            if (event.key === "F2") {
+              event.preventDefault();
+              setEditing(true);
+            }
+          }}
+          className="min-w-0 truncate"
+          title={`${thread.meta.workspace}\nDouble-click or F2 to rename`}
+        >
+          {thread.meta.title}
+        </button>
+      )}
       <button
         type="button"
         onClick={onClose}
@@ -65,12 +89,14 @@ export function Tabs({
   activeId,
   onActivate,
   onClose,
+  onRename,
   onNew,
 }: {
   threads: ThreadSnapshot[];
   activeId: string | undefined;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
+  onRename: (id: string, title: string) => void;
   onNew: () => void;
 }) {
   return (
@@ -86,6 +112,7 @@ export function Tabs({
           active={thread.meta.id === activeId}
           onActivate={() => onActivate(thread.meta.id)}
           onClose={() => onClose(thread.meta.id)}
+          onRename={(title) => onRename(thread.meta.id, title)}
         />
       ))}
       <button

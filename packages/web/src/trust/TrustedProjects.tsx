@@ -16,7 +16,8 @@ export function TrustedProjects() {
       <h3 className="text-sm font-semibold uppercase tracking-wide text-muted">Trusted projects</h3>
       {records?.length === 0 && (
         <p className="mt-1 text-sm text-muted">
-          None. Trust a project from the banner in its thread.
+          None yet. If a project's <span className="font-mono">.agent86/config.toml</span> has
+          settings that need trust, its thread shows a banner where you can review and trust it.
         </p>
       )}
       <ul className="mt-1 space-y-1">

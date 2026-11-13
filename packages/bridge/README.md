@@ -9,11 +9,12 @@ agent86-web runs a small server on your machine (loopback only) and opens a page
 - **Saved sessions**, including ones started at a terminal (and `agent86 --resume <id>` continues a browser session at a terminal).
 - **Several threads at once.**
 - **Model and approval-mode pickers**, `/` commands, and `@` file mentions.
+- **Thread names** you choose (saved in agent86 with 1.0.17 or newer), a resizable sessions panel, and a **Quit** button.
 
 ## Requirements
 
 - Node.js 20.19 or newer
-- [agent86](https://github.com/Maetek-Technologies/agent86) 1.0.15 or newer on your `PATH`, with a model it can use:
+- [agent86](https://github.com/Maetek-Technologies/agent86) 1.0.15 or newer on your `PATH` (1.0.17 or newer recommended: it keeps thread names you give in the browser and lists each workspace's own sessions), with a model it can use:
 
 ```sh
 npm install -g agent86
@@ -52,7 +53,9 @@ agent86-web --root ~/code
 ## Things to know
 
 - **Workspaces.** A thread runs in one folder under a `--root`. Pick it with _Open a workspace…_. To work in another folder, open a new thread there.
-- **Project settings need trust.** agent86 ignores the riskier settings in a project's `.agent86/config.toml`, such as MCP servers, providers, and approvals, until you trust the file. When it does, the thread shows a banner. _Review and trust_ shows the whole file. agent86-web remembers your decision for that exact file in `~/.agent86-web/trusted-projects.json`, and asks again if the file changes. Revoke it under _About_.
+- **Project settings need trust.** agent86 ignores the riskier settings in a project's `.agent86/config.toml`, such as MCP servers, providers, and approvals, until you trust the file. When it does, the thread shows a banner. _Review and trust_ shows the whole file. agent86-web remembers your decision for that exact file in `~/.agent86-web/trusted-projects.json`, and asks again if the file changes. Revoke it under _Settings & about_ (the agent86 version button in the top bar).
+- **The approval mode new threads start in.** Choose it under _Settings & about_; it applies once, when a thread is first opened in that browser. To change agent86's own default everywhere, terminal included, set `approval = "auto"` (or `ask`, `deny`) under `[guardrails]` in `~/.agent86/config.toml`, or start agent86-web with `AGENT86_APPROVAL=auto` in its environment.
+- **Stopping.** Press Ctrl+C in the terminal, or use ⏻ (Quit) in the top bar. Either way, every agent86 it started stops; sessions are saved.
 - **Model setup and secrets stay at the terminal.** Add keys with `agent86 keys set <provider>` or `/config model`, and enter secrets with `/secret NAME` in `agent86`, choosing to remember them for the project. Browser threads then use them. The protocol agent86-web speaks does not allow asking for secrets in a form.
 - **Using it from another device.** agent86-web listens only on loopback. Forward the port over SSH:
   ```sh

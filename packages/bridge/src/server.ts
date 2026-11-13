@@ -56,6 +56,11 @@ export interface BridgeOptions {
   updateCheck?: boolean;
   /** For tests: how the update check finds a package's latest version. */
   latestVersion?: (pkg: string) => Promise<string | undefined>;
+  /**
+   * Called after a signed-in page asks agent86-web to stop (`POST /api/shutdown`), once the answer
+   * is sent. The CLI stops the bridge as on Ctrl+C. Without it, the endpoint is refused.
+   */
+  onShutdownRequested?: () => void;
   log?: (line: string) => void;
 }
 
@@ -288,6 +293,17 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
           return json(res, 200, { trusted: true });
         }
         return json(res, 405, { error: "method_not_allowed" });
+      }
+      if (url.pathname === "/api/shutdown") {
+        if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
+        if (!auth.originAllowed(req) || !Auth.hasCsrfHeader(req)) {
+          return json(res, 403, { error: "origin_not_allowed" });
+        }
+        const stop = options.onShutdownRequested;
+        if (!stop) return json(res, 501, { error: "not_supported" });
+        log("stop requested from the browser");
+        res.once("finish", () => setImmediate(stop));
+        return json(res, 200, { stopping: true });
       }
       if (url.pathname === "/api/files" && req.method === "GET") {
         const workspace = resolveWorkspace(url.searchParams.get("workspace") ?? "", options.roots);

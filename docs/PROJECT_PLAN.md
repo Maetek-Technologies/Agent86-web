@@ -61,8 +61,57 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 | M3 ✅ | **Tools and approvals** | Tool-call cards (`tool_call`, `tool_call_update`), `session/request_permission` dialog with a diff viewer for file edits and a command view for `run_command` | Edit a file in a test project through the browser with an approval, and decline one |
 | M4 ✅ | **Sessions, models, workspaces** | Session sidebar (`session/list`, `session/load` replay), workspace picker limited to `--root`, mode and model pickers (`session/set_config_option`, `config_option_update`), slash-command menu (`available_commands_update`), several threads at once, the project trust banner and dialog | Resume a session started at the terminal; switch model mid-thread; run two threads in parallel; trust a project and see its MCP servers start |
 | M5 | **Hardening and release** | Security review of the bridge, reconnect handling, the agent86 version check, packaging (`npx agent86-web` with the built SPA embedded), end-to-end tests in CI, user docs | v0.1.0 published to npm |
+| M6 | **0.2.0: shell polish** | Resizable sessions panel, thread rename, a Quit button, a more useful logs drawer, a default approval mode, the `AGENT86` wordmark, clearer trust wording, and support for agent86 1.0.17 (session lists per workspace, `/rename`). Details below. | v0.2.0 published to npm |
 
 Milestones are vertical slices: each one leaves a usable app. Details for each are in [ARCHITECTURE.md](ARCHITECTURE.md) and [UI_DESIGN.md](UI_DESIGN.md).
+
+### M6: agent86-web 0.2.0
+
+Feature requests gathered after M5, on 2026-11-13, and built the same day. No bridge workarounds for agent86 behavior: where agent86 is the cause, the fix is requested upstream for agent86 1.0.17 (see §5), and agent86-web uses it once it is there.
+
+**6.1 Resizable sessions panel** (web)
+- A 4 px drag handle on the sidebar's right edge (`role="separator"`, `aria-orientation="vertical"`, `aria-valuenow`) replaces the fixed `w-64` width.
+- The width is limited to 180–560 px. Double-clicking the handle resets it to 256 px, and Left and Right arrow keys resize it when the handle has focus.
+- The width and the existing shown/hidden state (not remembered today) are kept in localStorage under a new key in `threads/storage.ts`.
+- Tests: a unit test for the width limits, and a Playwright test for dragging and keeping the width across a reload.
+
+**6.2 Rename threads** (web, using agent86 1.0.17 when available)
+- Double-click a tab's title, or use the pencil shown when hovering over a sidebar row, to edit the name in place. Enter saves, Esc cancels, and empty names are refused. Names are trimmed to one line of at most 200 characters.
+- `ThreadMeta` gains `renamed: true`, so the first prompt no longer overwrites a name the user chose (`ThreadView.tsx`, `onPrompt`).
+- Custom names are kept per session ID in localStorage (`agent86web.titles.v1`). The sidebar and reopened tabs show them, with agent86's title in the tooltip.
+- With agent86 1.0.17 or later, which lists `/rename` in its commands (`available_commands_update`), the name is also saved in agent86's database, so `/resume` at a terminal and other browsers see it. The name is saved locally at once and sent to agent86 when the session is open and idle (agent86 refuses requests during a turn). A rename made from the sidebar for a session that is not open is sent the next time it is opened. The command must not appear in the transcript or the prompt history.
+- With older agent86 versions, the name stays local to this browser, and the rename UI says so.
+
+**6.3 Quit button** (web, plus one new bridge endpoint)
+- A power button in the header asks for confirmation, warns if any thread has a turn running or an approval waiting, closes the threads, then calls `POST /api/shutdown`.
+- Bridge: the endpoint needs the session cookie, the origin check, and the `x-agent86-web` header, like `POST /api/trust`. It replies, then runs the same shutdown as Ctrl+C (stops every agent86, closes the server). `startBridge` takes an `onShutdownRequested` callback that `cli.ts` hooks into its SIGINT wait, and the terminal prints "Stopped from the browser."
+- The page calls `window.close()`. Browsers allow that only for tabs a script opened or tabs with a single history entry, which the tab agent86-web opens at launch usually is. Otherwise the page is replaced by "agent86-web has stopped. You can close this tab." A `BroadcastChannel` tells other open tabs of the app to show the same screen.
+- Security: a new SECURITY.md row. The worst a signed-in page can do with it is stop agent86-web. The endpoint is refused without the cookie or the header.
+- Tests: bridge tests (refused without a session, the origin, or the header; shuts down otherwise), and a Playwright test.
+
+**6.4 A more useful logs drawer** (web)
+- agent86 writes to stderr only for problems and notable events (memory, sandbox, MCP servers that fail, model lists that fail, ignored untrusted settings, save failures), so the drawer of a healthy thread is empty. That is expected, not an ACP limitation: ACP has no log channel, and the bridge forwards stderr itself as `_agent86web/stderr`.
+- The client adds its own connection events, marked `[agent86-web]`: connected, session started or reopened, reconnecting (with the reason), restarted with the project's settings after trust, and closed (the close reason includes agent86's exit status).
+- A copy button and a notice badge when the untrusted-settings note arrives, both described in UI_DESIGN.md §3.5 but not built in M4.
+- The button reads `logs (0)`, dimmed, while there is nothing to show.
+- Tests: a Playwright test with the mock agent's untrusted-settings note, which shows the badge and the line.
+
+**6.5 Default approval mode** (web)
+- A browser preference with the choices "agent86's default" (the default), `ask`, `auto`, and `deny`. After a thread starts or reopens, if agent86 offers the chosen value for its `mode` option and the current value differs, the client sets it with `session/set_config_option`.
+- It sits in the About panel, renamed "Settings & about".
+- Choosing `auto` asks for confirmation once, since it turns off approvals in every new thread. The thread header already shows the current mode. A SECURITY.md note covers it.
+- Already possible without this, and documented in the README: `AGENT86_APPROVAL=auto` in the environment that starts agent86-web, or `approval = "auto"` under `[guardrails]` in `~/.agent86/config.toml` (which the terminal also uses).
+
+**6.6 Wordmark**
+- The header shows `AGENT86` instead of `AGENT 86` (`App.tsx`), keeping the monospace upper-case style. UI_DESIGN.md follows.
+
+**6.7 Trust wording**
+- The empty trusted-projects list says: "None yet. If a project's `.agent86/config.toml` has settings that need trust, its thread shows a banner where you can review and trust it." The banner itself is unchanged (built in M4); it appears only when agent86 reports ignored settings.
+
+**6.8 agent86 1.0.17**
+- Session lists: with 1.0.17, agent86 records the directory of terminal sessions and stops reporting unknown ones under every workspace. agent86-web needs no change, only the FEATURE_PARITY note. Sessions saved before 1.0.17 that were never opened from a directory stop showing in the sidebar. Resuming one at a terminal (`agent86 --resume <id>`) in the right directory brings it back.
+- Rename: see 6.2.
+- 1.0.17 is recommended, not required. `MIN_AGENT86_VERSION` stays where it is, and the About panel notes which features need 1.0.17.
 
 ### Phase 2: hosted (sketch)
 
@@ -88,6 +137,8 @@ Phase 1 uses only what `agent86 acp` offers today. Some terminal features have n
 | `agent86 trust <path>`, or trust over ACP | Record browser trust in agent86's own file, so the terminal honors it too and the hash-to-spawn race goes away | The bridge keeps its own record and passes `--trust-project` ([ADR 0004](adr/0004-project-trust-from-the-browser.md)) |
 | Plans (`plan` updates) | A to-do view of the agent's plan | None |
 | Images in prompts | Paste screenshots | None |
+| ✅ **Done in agent86 1.0.17:** record each session's directory, terminal sessions included, and leave sessions with no known directory out of `session/list` results filtered by `cwd` | Before, a terminal session was reported in the directory the listing process started in, so the bridge saw it under every workspace | Before 1.0.17, none (decided 2026-11-13: no bridge workaround) |
+| ✅ **Done in agent86 1.0.17:** rename a session (`/rename <title>`, at the terminal and over ACP) | Thread names that the terminal and other browsers see too | Before 1.0.17, browser-local names (M6, 6.2) |
 
 ## 6. Risks
 
@@ -112,3 +163,5 @@ Phase 1 uses only what `agent86 acp` offers today. Some terminal features have n
 | 2026-11-11 | **M4 done.** Bridge: a thread registry where a process outlives its socket (per-generation request ids, agent requests declined when no page can answer, agent86's first `initialize` answer reused for a reattached page, `?fresh=1` restart, `--idle-timeout`, `--max-agents` with LRU eviction), agent86's stderr forwarded as `_agent86web/stderr` notifications, and `/api/sessions`, `/api/workspaces`, `/api/files`, and `/api/trust`. Client: `loadSession` (waiting out a running turn), `setConfigOption`, file links in prompts, and the logs store with agent86's untrusted-settings note. Web: a shell with a session sidebar per workspace, threads in tabs remembered across reloads, a workspace picker, model and mode selectors (Shift+Tab cycles the mode), the `/` command menu, `@` file mentions, per-workspace prompt history, the logs drawer, and the trust banner, review dialog, and trusted-projects list (ADR 0004). All four exit criteria pass end to end against the real agent86 1.0.15: a session started with `agent86 run` resumes in the browser, the model switches mid-thread, two threads run at once, and trusting a project starts its MCP server (`mcp__demo__mock_echo` appears in `/tools`). Found: agent86 refuses every request during a turn, `initialize` included; `/tools`-style commands are not saved in the session; sessions started at a terminal are listed under every workspace; the npm `agent86` launcher costs about 45 MB per thread on top of agent86's own 15–18 MB. 200 unit and component tests and 60 Playwright tests. |
 | 2026-11-11 | **M5 (up to publishing).** Packaging: `agent86-web` 0.1.0 with a user README and LICENSE, no source maps (333 KB tarball, one runtime dependency, `ws`), and `check-dist.mjs` before publishing (web client present, no inline script, style, or handler). CI's new package job packs the tarball, installs it into an empty project on Node 20, and runs the browser tests against the installed command. Security review (SECURITY.md §6): all items checked and tested; fixed a project config symlinked outside the workspace being readable in the trust dialog, added a frame rate limit (500 per 10 s), and shared session-list processes. Update notices (Q10): a daily npm check, shown in the header and About, turned off with `--no-update-check`. Release: `.github/workflows/release.yml` publishes the packed tarball with provenance when a `v0.1.0` tag is pushed, using an `NPM_TOKEN` secret, and creates the GitHub release from `docs/releases/v0.1.0.md`. Remaining for the exit criterion: add the secret and push the tag. |
 | 2026-11-11 | The repository moved to `Maetek-Technologies/Agent86-web`. The package's repository URLs, the license (copyright Maetek Technologies), and the credits follow. |
+| 2026-11-13 | **M6 planned** (0.2.0): resizable sidebar, thread rename, Quit button, logs drawer improvements, default approval mode, `AGENT86` wordmark, trust wording. Two agent86 changes requested for 1.0.17 (session directories, `/rename`). Decided: no bridge workaround for the session-list problem. |
+| 2026-11-13 | **M6 built (up to publishing).** agent86 1.0.17 shipped both requested changes. Client: `session_info_update` titles, `AgentSession.command()` for quiet slash commands (kept out of the transcript), `Agent86Client.note()` for agent86-web's own log lines. Bridge: `POST /api/shutdown` (cookie, origin, and header checks) and the CLI's "Stopped from the browser." Web: resizable, remembered sessions panel; rename from tabs and the sidebar, saved in agent86 with `/rename` when it is offered and kept in the browser otherwise; ⏻ Quit with a confirmation, `window.close()`, a stopped screen, and a `BroadcastChannel` for other tabs; connection events, a copy button, and the untrusted badge in the logs drawer; the default approval mode under Settings & about (with a confirmation for `auto`); the `AGENT86` wordmark; the trust wording. The mock agent answers like 1.0.17 when `MOCK_AGENT86_VERSION=1.0.17`. Tests: 223 unit and component tests (11 new), and 11 new Playwright tests, one against the real agent86 1.0.17 (a rename reaches agent86's own session list). Found: the bridge's 3-second session-list cache can show the previous list right after a change. Remaining: bump the version, tag `v0.2.0`. |
