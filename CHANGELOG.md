@@ -15,6 +15,6 @@ Shell polish and agent86 1.0.17 support. See [docs/releases/v0.2.0.md](docs/rele
 - Clearer wording in the trusted-projects list.
 - With agent86 1.0.17, each workspace lists only its own sessions.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-10)
 
 First release: chat, tool approvals with diffs, several threads, saved sessions (including terminal ones), workspace, model, and mode pickers, `/` commands, `@` mentions, project trust, and update notices. See [docs/releases/v0.1.0.md](docs/releases/v0.1.0.md).
