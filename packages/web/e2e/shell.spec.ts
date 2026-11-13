@@ -1,5 +1,6 @@
 // The 0.2.0 shell features (docs/PROJECT_PLAN.md, M6): resizing the sessions panel, renaming
 // threads, the default approval mode, the logs drawer, and Quit.
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import {
@@ -10,6 +11,22 @@ import {
   startBridge,
   type Bridge,
 } from "./bridge.ts";
+
+/** Whether the real agent86 (AGENT86_BIN) is at least `version`. */
+function realAgentAtLeast(version: string): boolean {
+  const bin = process.env.AGENT86_BIN;
+  if (!bin) return false;
+  const out = execFileSync(bin, ["--version"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  const found = /(\d+)\.(\d+)\.(\d+)/.exec(out)?.slice(1).map(Number) ?? [0, 0, 0];
+  const wanted = version.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (found[i]! !== wanted[i]!) return found[i]! > wanted[i]!;
+  }
+  return true;
+}
 
 const box = (page: Page) => page.getByRole("textbox", { name: "Message agent86" });
 const visible = (page: Page) => page.getByRole("tabpanel").filter({ visible: true });
@@ -238,6 +255,11 @@ test.describe("with agent86 1.0.15", () => {
 
 test.describe("with the real agent86", () => {
   test.skip(!process.env.AGENT86_BIN, "set AGENT86_BIN to run against a real agent86");
+  // /rename arrived in agent86 1.0.17; CI runs the oldest supported agent86.
+  test.skip(
+    () => !realAgentAtLeast("1.0.17"),
+    "the real agent86 is older than 1.0.17, which added /rename",
+  );
   let model: Awaited<ReturnType<typeof scriptedModel>>;
   let bridge: Bridge;
   test.beforeEach(async () => {
