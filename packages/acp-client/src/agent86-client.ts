@@ -18,6 +18,7 @@ import {
   type Compatibility,
 } from "./handshake.ts";
 import {
+  addNotice,
   addPermission,
   applyUpdate,
   endTurn,
@@ -297,6 +298,11 @@ export class AgentSession {
       this.answers.set(id, resolve);
       this.set(state);
     });
+  }
+
+  /** Show a note from the client in the transcript (agent86 never sees it). */
+  notice(level: "info" | "warning" | "error", text: string, hint?: string): void {
+    this.set(addNotice(this.state, level, text, hint));
   }
 
   /** @internal After a load: the replayed history is in; keep the session's settings. */

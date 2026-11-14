@@ -44,7 +44,7 @@ On narrow screens (under about 768 px), the sidebar collapses into a drawer and 
 
 - **Sessions panel:** drag its right edge to resize it (180–560 px; arrow keys when the edge has focus, double-click to reset to 256 px). Its width and whether it is shown are remembered in the browser.
 - **Renaming:** double-click a tab's name (or press F2 on it), or use the pencil on a session row. With agent86 1.0.17 or later the name is saved in agent86 with `/rename`, sent quietly when the session is idle and kept out of the transcript; with older versions it is kept in the browser.
-- **Top bar:** the version button opens **Settings & about** (versions, update notices, the approval mode for new threads, trusted projects). ⏻ quits agent86-web after a confirmation that names running turns and waiting approvals; the tab then closes, or says that agent86-web has stopped.
+- **Top bar:** the version button opens **Settings & about** (versions, update notices, the approval mode for new threads, the saved port, trusted projects). ⏻ quits agent86-web after a confirmation that names running turns and waiting approvals; the tab then closes, or says that agent86-web has stopped.
 
 ## 3. Screens
 
@@ -63,7 +63,7 @@ On narrow screens (under about 768 px), the sidebar collapses into a drawer and 
 
 ### 3.3 Thread
 
-- **Header:** the model selector (grouped: Configured first, then each provider as its list arrives, with a spinner per group while loading), the mode selector (`ask` / `auto` / `deny` with a short explanation of each), a cost button (runs `/cost`), the session ID (copy, plus a hint: `agent86 --resume <id>`), and a logs drawer toggle.
+- **Header:** the model selector (grouped: Configured first, then each provider as its list arrives, with a spinner per group while loading), the mode selector (`ask` / `auto` / `deny` with a short explanation of each) with _make default_ beside it (or `(default)` when it is the default; `auto` asks first), a cost button (runs `/cost`), the session ID (copy, plus a hint: `agent86 --resume <id>`), and a logs drawer toggle.
 - **Transcript** (the message types are in §4)
 - **Phase line,** shown while a turn runs: a spinner, a label (`Thinking…`, `Running <tool>…`, `Waiting for approval`, `Cancelling…`), elapsed time, and Stop.
 - **Input:** an auto-growing textarea with the workspace in its border. `/` opens the command menu (from `available_commands_update` plus local commands). `@` opens a file menu. Up and Down arrows recall history when the caret is at the start or end. The input is disabled while a turn runs, but text can be typed ahead.
@@ -82,7 +82,7 @@ On narrow screens (under about 768 px), the sidebar collapses into a drawer and 
 
 ### 3.5 Logs drawer
 
-agent86's stderr notes for this thread's process: MCP startup, ignored untrusted settings, memory notes. agent86 writes these only for problems and notable events, so agent86-web adds its own connection events, dimmed and marked `[agent86-web]` (connected, session started or reopened, reconnecting and why, restarted after trust, renamed, mode applied). They show monospace, newest at the bottom, with a copy button. The toggle shows the line count, dimmed at zero, and a notice badge when an untrusted-settings note is seen.
+agent86's stderr notes for this thread's process: MCP startup, ignored untrusted settings, memory notes. agent86 writes these only for problems and notable events, so agent86-web adds its own connection events, dimmed and marked `[agent86-web]` (connected, session started or reopened, reconnecting and why, restarted after trust, renamed, mode and model set again). They show monospace, newest at the bottom, with a copy button. The toggle shows the line count, dimmed at zero, and a notice badge when an untrusted-settings note is seen.
 
 ## 4. Transcript elements
 

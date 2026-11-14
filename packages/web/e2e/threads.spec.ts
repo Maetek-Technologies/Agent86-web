@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import {
   mockAgent86,
@@ -154,7 +155,7 @@ function threadFlows(flavor: Flavor) {
     await box(page).filter({ visible: true }).press("Enter");
     // agent86 shows the model a link as "name (uri)"; the scripted model repeats what it was told.
     await expect(replies(page)).toContainText(
-      `README.md (file://${join(bridge.workspace, "README.md")})`,
+      `README.md (${pathToFileURL(join(bridge.workspace, "README.md")).href})`,
     );
   });
 

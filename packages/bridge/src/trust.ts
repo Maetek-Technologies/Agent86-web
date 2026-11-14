@@ -6,9 +6,10 @@
 // bytes, and passes `--trust-project` when it starts agent86 for a project whose file still
 // matches. Any change to the file needs trust again. The bridge never writes agent86's own record.
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { writePrivateJson } from "./state-file.ts";
 import { realpath, within } from "./workspaces.ts";
 
 /** The largest project file shown for review. A config file is small; anything bigger is refused. */
@@ -101,16 +102,6 @@ export class TrustStore {
 
   /** Written atomically, readable only by the user (docs/SECURITY.md T16, T17). */
   private write(records: TrustRecord[]): void {
-    mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 });
-    const temporary = `${this.file}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify({ projects: records }, null, 2)}\n`, {
-      mode: 0o600,
-    });
-    renameSync(temporary, this.file);
-    try {
-      chmodSync(this.file, 0o600);
-    } catch {
-      // Windows: permissions are by ACL; the user profile directory already restricts it.
-    }
+    writePrivateJson(this.file, { projects: records });
   }
 }

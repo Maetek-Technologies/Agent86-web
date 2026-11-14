@@ -225,6 +225,16 @@ export function endTurn(state: SessionState, stopReason: StopReason, now: number
   return { ...next, turn: { running: false, cancelRequested: false } };
 }
 
+/** A note from the client itself (not from agent86), such as a setting it could not restore. */
+export function addNotice(
+  state: SessionState,
+  level: NoticeEntry["level"],
+  text: string,
+  hint?: string,
+): SessionState {
+  return withEntry(state, { kind: "notice", level, text, ...(hint ? { hint } : {}) });
+}
+
 /** The prompt failed: agent86 reported an error (a model error, for example). */
 export function failTurn(state: SessionState, message: string, now: number): SessionState {
   let next = endThought(state, now);

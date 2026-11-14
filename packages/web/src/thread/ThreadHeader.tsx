@@ -1,5 +1,6 @@
 import type { Agent86Client, AgentSession } from "@agent86-web/acp-client";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useDefaultMode } from "../threads/defaultMode.ts";
 
 type ConfigOption = ReturnType<AgentSession["getState"]>["configOptions"][number];
 type Choice = { value: string; name: string };
@@ -122,6 +123,24 @@ export function ThreadHeader({
     (a, b) => order.indexOf(a.id) - order.indexOf(b.id),
   );
 
+  const defaults = useDefaultMode();
+  const mode = state.configOptions.find((o) => o.id === "mode");
+  const currentMode = mode && "currentValue" in mode ? String(mode.currentValue) : undefined;
+  const [confirmAuto, setConfirmAuto] = useState(false);
+  const saveDefault = (value: string) => {
+    setConfirmAuto(false);
+    setError(undefined);
+    defaults
+      .set?.(value)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  };
+  // auto asks first, as in Settings: every new thread would run tools without asking.
+  const makeDefault = () => {
+    if (!currentMode) return;
+    if (currentMode === "auto") setConfirmAuto(true);
+    else saveDefault(currentMode);
+  };
+
   const change = (id: string, value: string) => {
     setError(undefined);
     session
@@ -140,6 +159,25 @@ export function ThreadHeader({
             onChange={(v) => change(option.id, v)}
           />
         ))}
+        {currentMode &&
+          defaults.set &&
+          (currentMode === defaults.mode ? (
+            <span
+              className="text-xs text-muted"
+              title="New threads start in this mode (Settings & about)"
+            >
+              (default)
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={makeDefault}
+              title={`Start new threads in ${currentMode} mode, in every browser`}
+              className="rounded px-1.5 py-0.5 text-xs text-muted hover:bg-panel-2 hover:text-text"
+            >
+              make default
+            </button>
+          ))}
         <div className="ml-auto flex items-center gap-2 text-xs">
           <button
             type="button"
@@ -170,6 +208,33 @@ export function ThreadHeader({
           </button>
         </div>
       </div>
+      {confirmAuto && currentMode === "auto" && (
+        <div
+          role="alertdialog"
+          aria-label="Confirm auto mode"
+          className="mx-auto mb-1.5 flex max-w-3xl flex-wrap items-center gap-2 px-4 text-xs"
+        >
+          <span>
+            Start every new thread in <span className="font-mono">auto</span> mode? agent86 will
+            edit files and run commands without asking.
+          </span>
+          <button
+            type="button"
+            autoFocus
+            onClick={() => setConfirmAuto(false)}
+            className="rounded border border-border px-2 py-0.5 hover:border-accent"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => saveDefault("auto")}
+            className="rounded border border-warn px-2 py-0.5 font-medium text-warn hover:bg-warn/10"
+          >
+            Use auto
+          </button>
+        </div>
+      )}
       {error && (
         <div role="alert" className="mx-auto max-w-3xl px-4 pb-1.5 text-xs text-error">
           {error}

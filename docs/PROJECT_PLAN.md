@@ -1,7 +1,7 @@
 # Project plan
 
-**Status:** v0.1.0 published (M5). M6 built, and the version bumped to 0.2.0; publishing needs the merge and a `v0.2.0` tag
-**Last updated:** 2026-11-13
+**Status:** v0.2.0 published (M6). M7 built, and the version bumped to 0.3.0; publishing needs the merge and a `v0.3.0` tag
+**Last updated:** 2026-11-14
 **Upstream baseline:** agent86 v1.0.15 (`Maetek-Technologies/agent86@fef902d`)
 
 This document is the source of truth for what agent86-web is, what it is not, and the order it will be built in. Update it whenever a milestone lands or a decision changes.
@@ -61,9 +61,26 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 | M3 ✅ | **Tools and approvals** | Tool-call cards (`tool_call`, `tool_call_update`), `session/request_permission` dialog with a diff viewer for file edits and a command view for `run_command` | Edit a file in a test project through the browser with an approval, and decline one |
 | M4 ✅ | **Sessions, models, workspaces** | Session sidebar (`session/list`, `session/load` replay), workspace picker limited to `--root`, mode and model pickers (`session/set_config_option`, `config_option_update`), slash-command menu (`available_commands_update`), several threads at once, the project trust banner and dialog | Resume a session started at the terminal; switch model mid-thread; run two threads in parallel; trust a project and see its MCP servers start |
 | M5 ✅ | **Hardening and release** | Security review of the bridge, reconnect handling, the agent86 version check, packaging (`npx agent86-web` with the built SPA embedded), end-to-end tests in CI, user docs | v0.1.0 published to npm |
-| M6 | **0.2.0: shell polish** | Resizable sessions panel, thread rename, a Quit button, a more useful logs drawer, a default approval mode, the `AGENT86` wordmark, clearer trust wording, and support for agent86 1.0.17 (session lists per workspace, `/rename`). Details below. | v0.2.0 published to npm |
+| M6 ✅ | **0.2.0: shell polish** | Resizable sessions panel, thread rename, a Quit button, a more useful logs drawer, a default approval mode, the `AGENT86` wordmark, clearer trust wording, and support for agent86 1.0.17 (session lists per workspace, `/rename`). Details below. | v0.2.0 published to npm |
+| M7 | **0.3.0: settings that last** | The default approval mode kept by the bridge, each thread's mode and model restored on every reopen, "make default" in the thread header, a saved port (`--save-port`, `AGENT86_WEB_PORT`). Details below. | v0.3.0 published to npm |
 
 Milestones are vertical slices: each one leaves a usable app. Details for each are in [ARCHITECTURE.md](ARCHITECTURE.md) and [UI_DESIGN.md](UI_DESIGN.md).
+
+### M7: agent86-web 0.3.0
+
+Reported after 0.2.0, on 2026-11-14: the default mode was not kept between sessions, and a request to open on the same port every time.
+
+**Cause.** Checked against agent86 1.0.18 over ACP: `session/set_config_option` changes the mode and model for the running session only; `session/load` reports agent86's defaults (`[guardrails] approval`, `--approval`, else `ask`), not what the session last had; a second `session/new` also starts from the defaults. 0.2.0 kept the default in localStorage, which is per origin, and the bridge picked a free port on each start, so the default was lost with every restart. It also applied the default once per thread (`modeApplied`), so a thread reopened after a reload, an idle restart, or trust went back to agent86's default. The mock agent restored the saved mode on load, unlike agent86, which hid this from the tests.
+
+**7.1 Settings kept by the bridge** (bridge): `~/.agent86-web/settings.json` (`SettingsStore`, written atomically, 0600) holds `defaultMode` and `port`. `/api/info` reports both; `POST /api/settings` (cookie, origin, header) sets or clears `defaultMode` only. `AGENT86_WEB_STATE_DIR` moves the state directory (tests).
+
+**7.2 Each thread keeps its settings** (web): `ThreadMeta.settings` records the thread's mode and model as they change (header, Shift+Tab, `/mode`). On every `session/new` or `session/load`, `SettingsKeeper` sets them again (the model first, then the mode) before the thread is shown; a new thread with no remembered mode gets the default. A model that agent86 lists only later (a provider's live list) is set when listed, unless the user picks one first, and the thread says so after 20 s if it never is. Failures show as a warning in the transcript. 0.2.0's localStorage default moves to the bridge once.
+
+**7.3 The default from a thread** (web): "make default" beside the mode selector; `auto` asks first, like Settings.
+
+**7.4 A saved port** (bridge CLI): `--port`, then `AGENT86_WEB_PORT`, then the saved port, then any free port; `--save-port` saves `--port` (`--port 0` forgets it). A port in use stops the CLI with where the port came from and how to get past it. Settings & about shows the saved port and the command. A new launch link opened in an old tab on the same port reloads it, so it signs in.
+
+**7.5 Tests:** the mock agent now reopens sessions in its defaults, like agent86; bridge tests for the store, the port order, the API checks, and `EADDRINUSE`; unit tests for `SettingsKeeper`; Playwright tests for a reload, the default from a thread and from Settings, and a restart on a saved port (with a second start refused), plus a reload against the real agent86 (mode and model).
 
 ### M6: agent86-web 0.2.0
 
@@ -165,3 +182,5 @@ Phase 1 uses only what `agent86 acp` offers today. Some terminal features have n
 | 2026-11-11 | The repository moved to `Maetek-Technologies/Agent86-web`. The package's repository URLs, the license (copyright Maetek Technologies), and the credits follow. |
 | 2026-11-13 | **M6 planned** (0.2.0): resizable sidebar, thread rename, Quit button, logs drawer improvements, default approval mode, `AGENT86` wordmark, trust wording. Two agent86 changes requested for 1.0.17 (session directories, `/rename`). Decided: no bridge workaround for the session-list problem. |
 | 2026-11-13 | **M6 built (up to publishing).** agent86 1.0.17 shipped both requested changes. Client: `session_info_update` titles, `AgentSession.command()` for quiet slash commands (kept out of the transcript), `Agent86Client.note()` for agent86-web's own log lines. Bridge: `POST /api/shutdown` (cookie, origin, and header checks) and the CLI's "Stopped from the browser." Web: resizable, remembered sessions panel; rename from tabs and the sidebar, saved in agent86 with `/rename` when it is offered and kept in the browser otherwise; ⏻ Quit with a confirmation, `window.close()`, a stopped screen, and a `BroadcastChannel` for other tabs; connection events, a copy button, and the untrusted badge in the logs drawer; the default approval mode under Settings & about (with a confirmation for `auto`); the `AGENT86` wordmark; the trust wording. The mock agent answers like 1.0.17 when `MOCK_AGENT86_VERSION=1.0.17`. Tests: 223 unit and component tests (11 new), and 11 new Playwright tests, one against the real agent86 1.0.17 (a rename reaches agent86's own session list). Found: the bridge's 3-second session-list cache can show the previous list right after a change. Version bumped to 0.2.0 in PR #4; remaining: merge, then push the `v0.2.0` tag to publish. |
+| 2026-11-13 | **v0.2.0 published** to npm with provenance, and the GitHub release created from `docs/releases/v0.2.0.md` (Release run after the `v0.2.0` tag on the PR #4 merge). |
+| 2026-11-14 | **M7 built (up to publishing).** Reported: the default mode was not kept between sessions. Cause, checked against agent86 1.0.18: agent86 keeps neither mode nor model with a session, 0.2.0 kept the default per origin while the port changed on every start, and applied it once per thread; the mock agent hid it by restoring the mode on load. Bridge: `~/.agent86-web/settings.json` (default mode, port), `POST /api/settings`, `--save-port` and `AGENT86_WEB_PORT`, a clear error for a port in use. Web: each thread's mode and model set again on every reopen before it is shown, "make default" in the thread header, the saved port in Settings, 0.2.0's browser default moved once, a new launch link signs an old tab in. Tests: 247 unit and component tests (24 new), 75 Playwright tests (4 new, one against the real agent86 1.0.18). Found: two real-agent86 tests and the `@` mention test fail on Windows only (the mention test fixed); the real-agent86 trust test is flaky under parallel load on 0.2.0 as well. Version bumped to 0.3.0; remaining: merge, then push the `v0.3.0` tag to publish. |

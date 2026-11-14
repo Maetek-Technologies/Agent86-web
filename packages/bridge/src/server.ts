@@ -10,6 +10,7 @@ import { MIN_AGENT86_VERSION } from "./agent86.ts";
 import { Auth } from "./auth.ts";
 import { listDirectories, matchFiles, walkFiles } from "./files.ts";
 import { listSessions } from "./sessions.ts";
+import { isMode, SettingsStore } from "./settings.ts";
 import { serveStatic } from "./static.ts";
 import { ThreadRegistry } from "./threads.ts";
 import { readProjectConfig, TrustStore } from "./trust.ts";
@@ -115,6 +116,7 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
 
   const log = options.log ?? (() => undefined);
   const trust = new TrustStore(options.stateDir);
+  const settings = new SettingsStore(options.stateDir);
   /** Newer releases, filled in the background after startup. */
   let updates: Updates = {};
   if (options.updateCheck) {
@@ -225,7 +227,29 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
           roots: options.roots,
           defaultWorkspace: options.roots[0],
           updates,
+          settings: {
+            defaultMode: settings.read().defaultMode ?? null,
+            port: settings.read().port ?? null,
+          },
         });
+      }
+      if (url.pathname === "/api/settings" && req.method === "POST") {
+        // Only the default mode is set from the page; the port is set at the terminal.
+        if (!auth.originAllowed(req) || !Auth.hasCsrfHeader(req)) {
+          return json(res, 403, { error: "origin_not_allowed" });
+        }
+        let body: { defaultMode?: unknown };
+        try {
+          body = JSON.parse(await readBody(req, 4096)) as typeof body;
+        } catch {
+          return json(res, 400, { error: "bad_request" });
+        }
+        if (body.defaultMode !== null && !isMode(body.defaultMode)) {
+          return json(res, 400, { error: "bad_request", message: "Unknown approval mode." });
+        }
+        const saved = settings.update({ defaultMode: body.defaultMode });
+        log(`new threads start in ${saved.defaultMode ?? "agent86's default"} mode`);
+        return json(res, 200, { defaultMode: saved.defaultMode ?? null });
       }
       if (url.pathname === "/api/workspaces" && req.method === "GET") {
         const requested = url.searchParams.get("path");

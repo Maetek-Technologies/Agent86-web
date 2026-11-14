@@ -125,6 +125,13 @@ function saveSession(id, change) {
 
 const DEFAULT_MODEL = "mock:test-model";
 const MODELS = [DEFAULT_MODEL, "mock:cheap-model"];
+/** agent86's starting settings: `--approval <mode>` (before `acp`), else ask. */
+function defaultSettings() {
+  const at = args.indexOf("--approval");
+  const mode =
+    at >= 0 && ["ask", "auto", "deny"].includes(args[at + 1] ?? "") ? args[at + 1] : "ask";
+  return { mode: /** @type {string} */ (mode), model: DEFAULT_MODEL };
+}
 /** Sessions this process has open, with their settings. */
 const open = /** @type {Map<string, { mode: string; model: string }>} */ (new Map());
 
@@ -296,7 +303,7 @@ const app = agent({ name: "mock-agent86" })
   .onRequest(methods.agent.session.new, ({ params, client }) => {
     remember("session/new", params);
     const sessionId = `mock-${randomBytes(4).toString("hex")}`;
-    const settings = { mode: "ask", model: DEFAULT_MODEL };
+    const settings = defaultSettings();
     open.set(sessionId, settings);
     saveSession(sessionId, (saved) => (saved.cwd = params.cwd));
     advertise(client, sessionId);
@@ -325,7 +332,9 @@ const app = agent({ name: "mock-agent86" })
     remember("session/load", params);
     const saved = loadDb()[params.sessionId];
     if (!saved) throw new RequestError(-32002, `Unknown session: ${params.sessionId}`);
-    const settings = { mode: saved.mode, model: saved.model };
+    // Like agent86 (checked against 1.0.18): a reopened session starts from the defaults, not the
+    // mode and model it last had.
+    const settings = defaultSettings();
     open.set(params.sessionId, settings);
     for (const turn of saved.turns) {
       for (const [sessionUpdate, text] of /** @type {const} */ ([

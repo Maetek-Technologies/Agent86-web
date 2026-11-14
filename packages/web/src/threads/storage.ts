@@ -25,6 +25,7 @@ export const KEYS = {
   history: (workspace: string) => `agent86web.history.v1:${workspace}`,
   sidebar: "agent86web.sidebar.v1",
   titles: "agent86web.titles.v1",
+  /** 0.2.0's per-browser default mode, now kept by the bridge (see takeLegacyDefaultMode). */
   prefs: "agent86web.prefs.v1",
 } as const;
 
@@ -153,22 +154,20 @@ class LocalTitles {
 
 export const localTitles = new LocalTitles();
 
-/** The approval mode new threads start in; "default" leaves agent86's own default. */
-export type ModePreference = "default" | "ask" | "auto" | "deny";
-
-export interface Preferences {
-  mode: ModePreference;
-}
-
-const MODES: readonly ModePreference[] = ["default", "ask", "auto", "deny"];
-
-export function loadPreferences(): Preferences {
-  const saved = load<Partial<Preferences>>(KEYS.prefs, {});
-  return { mode: MODES.includes(saved.mode as ModePreference) ? saved.mode! : "default" };
-}
-
-export function savePreferences(prefs: Preferences): void {
-  save(KEYS.prefs, prefs);
+/**
+ * The default approval mode 0.2.0 kept in this browser, for moving it to the bridge once. It was
+ * per origin, so a bridge on a new port never saw it. Read once: the key is removed.
+ */
+export function takeLegacyDefaultMode(): string | undefined {
+  const saved = load<{ mode?: unknown }>(KEYS.prefs, {});
+  try {
+    window.localStorage.removeItem(KEYS.prefs);
+  } catch {
+    // Read again next time; moving it twice does no harm.
+  }
+  return typeof saved.mode === "string" && ["ask", "auto", "deny"].includes(saved.mode)
+    ? saved.mode
+    : undefined;
 }
 
 const HISTORY_SIZE = 100;
