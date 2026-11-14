@@ -6,17 +6,12 @@ import {
   webSocketStream,
   type AgentSession,
 } from "@agent86-web/acp-client";
-import { acpUrl } from "../api.ts";
+import { acpUrl, saveDefaultMode } from "../api.ts";
 import { newThreadId } from "../token.ts";
-import {
-  cleanTitle,
-  KEYS,
-  load,
-  loadPreferences,
-  localTitles,
-  save,
-  type ModePreference,
-} from "./storage.ts";
+import { SettingsKeeper, type ThreadSettings } from "./settings.ts";
+import { cleanTitle, KEYS, load, localTitles, save } from "./storage.ts";
+
+export type { ThreadSettings } from "./settings.ts";
 
 export interface ThreadMeta {
   id: string;
@@ -26,8 +21,11 @@ export interface ThreadMeta {
   title: string;
   /** The user named the thread, so its first prompt does not. */
   renamed?: boolean;
-  /** The preferred approval mode has been applied (once, when the thread was first opened). */
-  modeApplied?: boolean;
+  /**
+   * The thread's approval mode and model, as last seen. agent86 keeps neither with the session, so
+   * they are set again whenever the session is reopened (a reload, an idle restart, a new bridge).
+   */
+  settings?: ThreadSettings;
 }
 
 export type ThreadPhase =
@@ -98,10 +96,14 @@ export class ThreadHandle {
   /** A name being sent to agent86 with `/rename`, or one agent86 refused on this connection. */
   private renaming = false;
   private renameRefused: string | undefined;
+  /** Keeps the current session's mode and model in the thread. */
+  private keeper: SettingsKeeper | undefined;
 
   constructor(
     meta: ThreadMeta,
     private readonly changed: () => void,
+    /** The approval mode new threads start in, if the user chose one. */
+    private readonly defaultMode: () => string | undefined = () => undefined,
   ) {
     this.snapshot = { meta, phase: "connecting" };
   }
@@ -183,19 +185,14 @@ export class ThreadHandle {
 
   /** Follow a ready session: names agent86 announces, renames waiting for an idle moment. */
   private watch(session: AgentSession): void {
-    const modePreference = loadPreferences().mode;
     this.unwatch?.();
     let announced = session.getState().title;
-    let modeChecked = false;
     const check = () => {
       const state = session.getState();
       if (state.title && state.title !== announced) {
         announced = state.title;
         const sessionId = this.snapshot.meta.sessionId;
         if (!sessionId || !localTitles.pending(sessionId)) this.setMeta({ title: state.title });
-      }
-      if (!modeChecked && !this.snapshot.meta.modeApplied) {
-        modeChecked = this.applyMode(session, modePreference);
       }
       this.syncTitle();
     };
@@ -204,30 +201,30 @@ export class ThreadHandle {
   }
 
   /**
-   * Put a thread opened for the first time in the preferred approval mode. Returns whether the
-   * question is settled (it waits while agent86 has not sent its options).
+   * Put the thread's mode and model back on the session agent86 just opened, which always starts
+   * from agent86's defaults. A thread with no remembered mode starts in the default mode. Resolves
+   * once the mode is set, so no turn runs under the wrong approvals.
    */
-  private applyMode(session: AgentSession, preference: ModePreference): boolean {
-    if (preference === "default") {
-      this.setMeta({ modeApplied: true });
-      return true;
-    }
-    const option = session.getState().configOptions.find((o) => o.id === "mode");
-    if (!option) return false;
-    this.setMeta({ modeApplied: true });
-    const offered =
-      "options" in option &&
-      (option.options as { value?: string }[]).some((choice) => choice.value === preference);
-    const current = "currentValue" in option ? String(option.currentValue) : undefined;
-    if (!offered) {
-      this.log(`agent86 does not offer the preferred mode ${preference}`);
-    } else if (current !== preference) {
-      session.setConfigOption("mode", preference).then(
-        () => this.log(`approval mode set to ${preference} (your default)`),
-        (error: unknown) => this.log(`could not set the mode to ${preference}: ${message(error)}`),
+  private async restoreSettings(session: AgentSession): Promise<void> {
+    this.keeper?.stop();
+    const fallback = this.defaultMode();
+    const wanted: ThreadSettings = {
+      ...(fallback ? { mode: fallback } : {}),
+      ...this.snapshot.meta.settings,
+    };
+    const remembered = !!this.snapshot.meta.settings?.mode;
+    const keeper = new SettingsKeeper(session, (settings) => this.setMeta({ settings }));
+    this.keeper = keeper;
+    const changed = await keeper.restore(wanted);
+    if (changed.length)
+      this.log(
+        `set ${changed.join(" and ")} (${remembered ? "as this thread had it" : "the default for new threads"})`,
       );
-    }
-    return true;
+  }
+
+  private stopKeeping(): void {
+    this.keeper?.stop();
+    this.keeper = undefined;
   }
 
   /**
@@ -239,6 +236,7 @@ export class ThreadHandle {
     this.closedByUs = false;
     this.unwatch?.();
     this.unwatch = undefined;
+    this.stopKeeping();
     this.snapshot.client?.close();
     const meta = this.snapshot.meta;
     this.update({
@@ -285,6 +283,10 @@ export class ThreadHandle {
         }
         this.log(`started session ${session.id}`);
       }
+      if (this.socket !== socket) return;
+      this.setMeta({ sessionId: session.id });
+      await this.restoreSettings(session);
+      if (this.socket !== socket) return;
       this.attempt = 0;
       const local = localTitles.get(session.id);
       const renamed = this.snapshot.meta.renamed;
@@ -345,6 +347,7 @@ export class ThreadHandle {
     clearTimeout(this.retryTimer);
     this.unwatch?.();
     this.unwatch = undefined;
+    this.stopKeeping();
     this.snapshot.client?.close();
     this.socket?.close(1000, "thread closed");
     this.socket = undefined;
@@ -354,14 +357,31 @@ export class ThreadHandle {
 export interface ManagerSnapshot {
   threads: ThreadSnapshot[];
   activeId: string | undefined;
+  /** The approval mode new threads start in; undefined leaves it to agent86. */
+  defaultMode: string | undefined;
 }
 
 /** All open threads, remembered across reloads. */
 export class ThreadManager {
   private handles: ThreadHandle[] = [];
   private activeId: string | undefined;
-  private snapshot: ManagerSnapshot = { threads: [], activeId: undefined };
+  private snapshot: ManagerSnapshot;
   private readonly listeners = new Set<() => void>();
+
+  constructor(
+    private defaultMode: string | undefined = undefined,
+    /** Saves the default with the bridge (replaced in tests). */
+    private readonly saveDefault: (mode: string | null) => Promise<string | null> = saveDefaultMode,
+  ) {
+    this.snapshot = { threads: [], activeId: undefined, defaultMode };
+  }
+
+  /** Start new threads in `mode` from now on, in every browser (`null`: agent86's default). */
+  async setDefaultMode(mode: string | null): Promise<void> {
+    const saved = await this.saveDefault(mode);
+    this.defaultMode = saved ?? undefined;
+    this.emit();
+  }
 
   /** Reopen the threads this browser had open. */
   restore(): void {
@@ -447,7 +467,11 @@ export class ThreadManager {
   }
 
   private add(meta: ThreadMeta, activate: boolean): void {
-    const handle = new ThreadHandle(meta, () => this.emit());
+    const handle = new ThreadHandle(
+      meta,
+      () => this.emit(),
+      () => this.defaultMode,
+    );
     this.handles.push(handle);
     if (activate) this.activeId = handle.id;
     this.emit();
@@ -456,7 +480,7 @@ export class ThreadManager {
 
   private emit(): void {
     const threads = this.handles.map((h) => h.getSnapshot());
-    this.snapshot = { threads, activeId: this.activeId };
+    this.snapshot = { threads, activeId: this.activeId, defaultMode: this.defaultMode };
     save(KEYS.threads, { threads: threads.map((t) => t.meta), activeId: this.activeId });
     for (const listener of this.listeners) listener();
   }

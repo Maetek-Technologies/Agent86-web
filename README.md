@@ -29,6 +29,7 @@ npm install -g agent86          # agent86 itself, if you don't have it
 agent86 keys set openrouter     # a key in the OS keyring, as usual
 
 npx agent86-web --root ~/code   # opens http://127.0.0.1:<port>/#token=…
+                                # add --port 8686 --save-port once to keep the same port
                                 # --max-agents 8, --idle-timeout 15m by default
 ```
 

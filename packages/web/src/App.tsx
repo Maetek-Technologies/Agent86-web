@@ -12,16 +12,19 @@ import { Sidebar } from "./shell/Sidebar.tsx";
 import { Tabs } from "./shell/Tabs.tsx";
 import { useBridge } from "./shell/useBridge.ts";
 import { WorkspacePicker } from "./shell/WorkspacePicker.tsx";
+import {
+  DefaultModeContext,
+  useDefaultMode,
+  type DefaultModeValue,
+} from "./threads/defaultMode.ts";
 import { ThreadManager } from "./threads/manager.ts";
 import {
   KEYS,
   load,
-  loadPreferences,
   loadSidebar,
   save,
-  savePreferences,
   saveSidebar,
-  type ModePreference,
+  takeLegacyDefaultMode,
   type SidebarLayout,
 } from "./threads/storage.ts";
 import { ThreadView } from "./threads/ThreadView.tsx";
@@ -89,21 +92,30 @@ function UpdateNotes({ info }: { info: BridgeInfo }) {
 /** agent86 1.0.17 added `/rename` and per-directory session lists. */
 const RENAME_VERSION = "1.0.17";
 
-const MODE_CHOICES: { value: ModePreference; label: string }[] = [
+/** The Settings menu's choices; "default" leaves the mode to agent86. */
+type ModeChoice = "default" | "ask" | "auto" | "deny";
+
+const MODE_CHOICES: { value: ModeChoice; label: string }[] = [
   { value: "default", label: "agent86's default" },
   { value: "ask", label: "ask: confirm each change" },
   { value: "auto", label: "auto: run without asking" },
   { value: "deny", label: "deny: refuse changes" },
 ];
 
-/** Per-browser settings: the approval mode new threads start in. */
-function Settings() {
-  const [prefs, setPrefs] = useState(loadPreferences);
+/**
+ * agent86-web's settings: the approval mode new threads start in, kept by the bridge so it holds
+ * in every browser and across restarts, and how to keep the same port.
+ */
+function Settings({ port }: { port: number | null }) {
+  const defaults = useDefaultMode();
   const [confirmAuto, setConfirmAuto] = useState(false);
-  const choose = (mode: ModePreference) => {
-    const next = { ...prefs, mode };
-    setPrefs(next);
-    savePreferences(next);
+  const [error, setError] = useState<string | undefined>(undefined);
+  const current = (defaults.mode ?? "default") as ModeChoice;
+  const choose = (mode: ModeChoice) => {
+    setError(undefined);
+    defaults
+      .set?.(mode === "default" ? null : mode)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   };
   return (
     <section aria-label="Settings" className="mt-4">
@@ -111,9 +123,10 @@ function Settings() {
       <label className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 py-1 text-sm">
         <span className="w-44 shrink-0 text-muted">Approval mode for new threads</span>
         <select
-          value={prefs.mode}
+          value={current}
+          disabled={!defaults.set}
           onChange={(event) => {
-            const mode = event.target.value as ModePreference;
+            const mode = event.target.value as ModeChoice;
             if (mode === "auto") setConfirmAuto(true);
             else {
               setConfirmAuto(false);
@@ -137,8 +150,7 @@ function Settings() {
         >
           <p>
             In <span className="font-mono">auto</span> mode, agent86 edits files and runs commands
-            without asking. Every thread you open for the first time in this browser will start that
-            way.
+            without asking. Every new thread will start that way, in any browser.
           </p>
           <div className="mt-2 flex gap-2">
             <button
@@ -162,9 +174,36 @@ function Settings() {
           </div>
         </div>
       )}
+      {error && (
+        <p role="alert" className="text-xs text-error">
+          {error}
+        </p>
+      )}
       <p className="text-xs text-muted">
-        Applied once, when a thread is first opened here. Change a thread's mode in its header.
+        Each thread keeps its own mode, even after a reload or a restart. Change it in the thread's
+        header, where "make default" also sets this.
       </p>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 py-1 text-sm">
+        <span className="w-44 shrink-0 text-muted">Port</span>
+        <span>
+          {port ? (
+            <>
+              <span className="font-mono">{port}</span>, saved. To change it:{" "}
+            </>
+          ) : (
+            <>Any free port. To open on the same port every time: </>
+          )}
+          <code className="rounded bg-panel-2 px-1 font-mono text-xs">
+            agent86-web --port {port ?? "<n>"} --save-port
+          </code>
+          {port && (
+            <>
+              {" "}
+              (<code className="font-mono text-xs">--port 0 --save-port</code> forgets it)
+            </>
+          )}
+        </span>
+      </div>
     </section>
   );
 }
@@ -200,7 +239,7 @@ function Details({ info, onClose }: { info: BridgeInfo; onClose: () => void }) {
           </p>
         )}
         <UpdateNotes info={info} />
-        <Settings />
+        <Settings port={info.settings?.port ?? null} />
         <TrustedProjects />
         <p className="mt-3 text-xs text-muted">
           agent86-web, a browser interface for{" "}
@@ -417,8 +456,21 @@ function Home({
 
 /** The signed-in app: sessions on the left, open threads in tabs (docs/UI_DESIGN.md §2). */
 function Shell({ info, onStopped }: { info: BridgeInfo; onStopped: () => void }) {
-  const manager = useMemo(() => new ThreadManager(), []);
+  const manager = useMemo(
+    () => new ThreadManager(info.settings?.defaultMode ?? undefined),
+    [info.settings?.defaultMode],
+  );
   const snapshot = useSyncExternalStore(manager.subscribe, manager.getSnapshot);
+  const defaultMode = useMemo<DefaultModeValue>(
+    () => ({ mode: snapshot.defaultMode, set: (mode) => manager.setDefaultMode(mode) }),
+    [manager, snapshot.defaultMode],
+  );
+
+  // 0.2.0 kept the default mode in this browser; move it to the bridge once.
+  useEffect(() => {
+    const legacy = takeLegacyDefaultMode();
+    if (legacy && !info.settings?.defaultMode) void manager.setDefaultMode(legacy).catch(() => {});
+  }, [manager, info.settings?.defaultMode]);
   const [picking, setPicking] = useState(false);
   const [details, setDetails] = useState(false);
   const [quitting, setQuitting] = useState(false);
@@ -513,91 +565,95 @@ function Shell({ info, onStopped }: { info: BridgeInfo; onStopped: () => void })
   };
 
   return (
-    <div className="flex h-screen flex-col">
-      <Header
-        info={info}
-        sessionId={active?.meta.sessionId}
-        onShowDetails={() => setDetails((d) => !d)}
-        onQuit={() => setQuitting(true)}
-      />
-      {details && <Details info={info} onClose={() => setDetails(false)} />}
-      <div className="flex min-h-0 flex-1">
-        {layout.shown && (
-          <Sidebar
-            workspaces={workspaces}
-            openSessionIds={openSessionIds}
-            refresh={refresh}
-            width={layout.width}
-            onResize={(width) => changeLayout({ width })}
-            onOpen={(workspace, s, title) => {
-              remember(workspace);
-              manager.openSession(workspace, s.sessionId, title);
+    <DefaultModeContext.Provider value={defaultMode}>
+      <div className="flex h-screen flex-col">
+        <Header
+          info={info}
+          sessionId={active?.meta.sessionId}
+          onShowDetails={() => setDetails((d) => !d)}
+          onQuit={() => setQuitting(true)}
+        />
+        {details && <Details info={info} onClose={() => setDetails(false)} />}
+        <div className="flex min-h-0 flex-1">
+          {layout.shown && (
+            <Sidebar
+              workspaces={workspaces}
+              openSessionIds={openSessionIds}
+              refresh={refresh}
+              width={layout.width}
+              onResize={(width) => changeLayout({ width })}
+              onOpen={(workspace, s, title) => {
+                remember(workspace);
+                manager.openSession(workspace, s.sessionId, title);
+              }}
+              onRename={(sessionId, title) => manager.renameSession(sessionId, title)}
+              onNew={openNew}
+              onChooseWorkspace={() => setPicking(true)}
+            />
+          )}
+          <main className="flex min-w-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-stretch">
+              <button
+                type="button"
+                onClick={() => changeLayout({ shown: !layout.shown })}
+                aria-label={layout.shown ? "Hide sessions" : "Show sessions"}
+                className="border-r border-b border-border bg-panel px-2 text-muted hover:text-text"
+              >
+                {layout.shown ? "‹" : "›"}
+              </button>
+              <div className="min-w-0 flex-1">
+                <Tabs
+                  threads={snapshot.threads}
+                  activeId={snapshot.activeId}
+                  onActivate={(id) => manager.activate(id)}
+                  onClose={(id) => manager.closeThread(id)}
+                  onRename={(id, title) => manager.rename(id, title)}
+                  onNew={() => openNew(currentWorkspace)}
+                />
+              </div>
+            </div>
+            <div className="min-h-0 flex-1">
+              {snapshot.threads.length === 0 && (
+                <Home info={info} onNew={openNew} onChoose={() => setPicking(true)} />
+              )}
+              {snapshot.threads.map((thread) => {
+                const handle = manager.handle(thread.meta.id);
+                if (!handle) return null;
+                const isActive = thread.meta.id === snapshot.activeId;
+                return (
+                  <div
+                    key={thread.meta.id}
+                    className={isActive ? "h-full" : "hidden"}
+                    role="tabpanel"
+                    aria-label={thread.meta.title}
+                  >
+                    <ThreadView
+                      thread={thread}
+                      handle={handle}
+                      active={isActive}
+                      onSessionsChanged={() => setRefresh((n) => n + 1)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </main>
+        </div>
+        {picking && (
+          <WorkspacePicker
+            initial={currentWorkspace}
+            onCancel={() => setPicking(false)}
+            onChoose={(path) => {
+              setPicking(false);
+              openNew(path);
             }}
-            onRename={(sessionId, title) => manager.renameSession(sessionId, title)}
-            onNew={openNew}
-            onChooseWorkspace={() => setPicking(true)}
           />
         )}
-        <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-stretch">
-            <button
-              type="button"
-              onClick={() => changeLayout({ shown: !layout.shown })}
-              aria-label={layout.shown ? "Hide sessions" : "Show sessions"}
-              className="border-r border-b border-border bg-panel px-2 text-muted hover:text-text"
-            >
-              {layout.shown ? "‹" : "›"}
-            </button>
-            <div className="min-w-0 flex-1">
-              <Tabs
-                threads={snapshot.threads}
-                activeId={snapshot.activeId}
-                onActivate={(id) => manager.activate(id)}
-                onClose={(id) => manager.closeThread(id)}
-                onRename={(id, title) => manager.rename(id, title)}
-                onNew={() => openNew(currentWorkspace)}
-              />
-            </div>
-          </div>
-          <div className="min-h-0 flex-1">
-            {snapshot.threads.length === 0 && (
-              <Home info={info} onNew={openNew} onChoose={() => setPicking(true)} />
-            )}
-            {snapshot.threads.map((thread) => {
-              const handle = manager.handle(thread.meta.id);
-              if (!handle) return null;
-              const isActive = thread.meta.id === snapshot.activeId;
-              return (
-                <div
-                  key={thread.meta.id}
-                  className={isActive ? "h-full" : "hidden"}
-                  role="tabpanel"
-                  aria-label={thread.meta.title}
-                >
-                  <ThreadView
-                    thread={thread}
-                    handle={handle}
-                    active={isActive}
-                    onSessionsChanged={() => setRefresh((n) => n + 1)}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </main>
+        {quitting && (
+          <QuitDialog {...activity()} onCancel={() => setQuitting(false)} onQuit={quit} />
+        )}
       </div>
-      {picking && (
-        <WorkspacePicker
-          initial={currentWorkspace}
-          onCancel={() => setPicking(false)}
-          onChoose={(path) => {
-            setPicking(false);
-            openNew(path);
-          }}
-        />
-      )}
-      {quitting && <QuitDialog {...activity()} onCancel={() => setQuitting(false)} onQuit={quit} />}
-    </div>
+    </DefaultModeContext.Provider>
   );
 }
 

@@ -8,6 +8,8 @@ export interface BridgeInfo {
   defaultWorkspace: string;
   /** Newer releases found by the bridge's daily check, if any. */
   updates?: { agent86?: string; agent86Web?: string };
+  /** agent86-web's own settings (~/.agent86-web/settings.json). */
+  settings?: { defaultMode: string | null; port?: number | null };
 }
 
 export class BridgeError extends Error {
@@ -169,4 +171,12 @@ export async function revokeTrust(path: string): Promise<void> {
 /** Stop agent86-web: every agent86 it runs, then the bridge itself. */
 export async function shutdown(): Promise<void> {
   await sendJson("POST", "/api/shutdown", {});
+}
+
+/** The approval mode new threads start in; `null` leaves it to agent86's own default. */
+export async function saveDefaultMode(mode: string | null): Promise<string | null> {
+  const body = (await sendJson("POST", "/api/settings", { defaultMode: mode })) as {
+    defaultMode: string | null;
+  };
+  return body.defaultMode;
 }

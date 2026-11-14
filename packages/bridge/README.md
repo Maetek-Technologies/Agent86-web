@@ -38,23 +38,25 @@ agent86-web --root ~/code
 
 ## Options
 
-| Option               | Default               | Meaning                                                                                                             |
-| -------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `--root <dir>`       | the current directory | A folder that threads may run in, or in folders under it. Repeat for more.                                          |
-| `--port <n>`         | any free port         | The port to listen on                                                                                               |
-| `--host <addr>`      | `127.0.0.1`           | A loopback address: `127.0.0.1`, `::1`, or `localhost`                                                              |
-| `--agent86 <path>`   | `agent86` on `PATH`   | The agent86 to run. Pointing at the native binary instead of npm's launcher saves about 45 MB per thread.           |
-| `--agent-arg=<arg>`  | —                     | An argument for agent86, placed before `acp`. Repeatable, e.g. `--agent-arg=--model --agent-arg=openrouter:<model>` |
-| `--max-agents <n>`   | `8`                   | The most agent86 processes running at once                                                                          |
-| `--idle-timeout <d>` | `15m`                 | Stop an agent86 that has no open tab and no running turn after this long (`90s`, `15m`, `1h`)                       |
-| `--no-open`          | —                     | Print the link without opening the browser                                                                          |
-| `--no-update-check`  | —                     | Don't check npm for newer agent86 or agent86-web releases (also `AGENT86_WEB_NO_UPDATE_CHECK=1`)                    |
+| Option               | Default                            | Meaning                                                                                                             |
+| -------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `--root <dir>`       | the current directory              | A folder that threads may run in, or in folders under it. Repeat for more.                                          |
+| `--port <n>`         | the saved port, else any free port | The port to listen on. `0` means any free port. Also `AGENT86_WEB_PORT`.                                            |
+| `--save-port`        | —                                  | Remember `--port` for later starts (`--port 0 --save-port` forgets it)                                              |
+| `--host <addr>`      | `127.0.0.1`                        | A loopback address: `127.0.0.1`, `::1`, or `localhost`                                                              |
+| `--agent86 <path>`   | `agent86` on `PATH`                | The agent86 to run. Pointing at the native binary instead of npm's launcher saves about 45 MB per thread.           |
+| `--agent-arg=<arg>`  | —                                  | An argument for agent86, placed before `acp`. Repeatable, e.g. `--agent-arg=--model --agent-arg=openrouter:<model>` |
+| `--max-agents <n>`   | `8`                                | The most agent86 processes running at once                                                                          |
+| `--idle-timeout <d>` | `15m`                              | Stop an agent86 that has no open tab and no running turn after this long (`90s`, `15m`, `1h`)                       |
+| `--no-open`          | —                                  | Print the link without opening the browser                                                                          |
+| `--no-update-check`  | —                                  | Don't check npm for newer agent86 or agent86-web releases (also `AGENT86_WEB_NO_UPDATE_CHECK=1`)                    |
 
 ## Things to know
 
 - **Workspaces.** A thread runs in one folder under a `--root`. Pick it with _Open a workspace…_. To work in another folder, open a new thread there.
 - **Project settings need trust.** agent86 ignores the riskier settings in a project's `.agent86/config.toml`, such as MCP servers, providers, and approvals, until you trust the file. When it does, the thread shows a banner. _Review and trust_ shows the whole file. agent86-web remembers your decision for that exact file in `~/.agent86-web/trusted-projects.json`, and asks again if the file changes. Revoke it under _Settings & about_ (the agent86 version button in the top bar).
-- **The approval mode new threads start in.** Choose it under _Settings & about_; it applies once, when a thread is first opened in that browser. To change agent86's own default everywhere, terminal included, set `approval = "auto"` (or `ask`, `deny`) under `[guardrails]` in `~/.agent86/config.toml`, or start agent86-web with `AGENT86_APPROVAL=auto` in its environment.
+- **The approval mode new threads start in.** Choose it under _Settings & about_, or with _make default_ next to a thread's mode. agent86-web keeps it in `~/.agent86-web/settings.json`, so it holds in every browser and across restarts. Each thread keeps its own mode and model, even after a reload or a restart. To change agent86's own default everywhere, terminal included, set `approval = "auto"` (or `ask`, `deny`) under `[guardrails]` in `~/.agent86/config.toml`, or start agent86-web with `AGENT86_APPROVAL=auto` in its environment.
+- **The same port every time.** `agent86-web --port 8686 --save-port` saves the port in `~/.agent86-web/settings.json`; later starts use it, and the browser keeps your open threads and prompt history across restarts. If the port is in use, agent86-web says so and stops. `--port` and `AGENT86_WEB_PORT` override it for one run.
 - **Stopping.** Press Ctrl+C in the terminal, or use ⏻ (Quit) in the top bar. Either way, every agent86 it started stops; sessions are saved.
 - **Model setup and secrets stay at the terminal.** Add keys with `agent86 keys set <provider>` or `/config model`, and enter secrets with `/secret NAME` in `agent86`, choosing to remember them for the project. Browser threads then use them. The protocol agent86-web speaks does not allow asking for secrets in a form.
 - **Using it from another device.** agent86-web listens only on loopback. Forward the port over SSH:

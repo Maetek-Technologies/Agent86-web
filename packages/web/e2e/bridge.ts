@@ -26,6 +26,8 @@ export interface Bridge {
   workspace: string;
   /** The mock agent's session store for this bridge. */
   db: string;
+  /** agent86-web's own state (settings.json, trusted projects), never the real ~/.agent86-web. */
+  stateDir: string;
   /** The environment agent86 runs with (for running `agent86 run` at a "terminal" in tests). */
   env: Record<string, string>;
   /** What the mock agent received, if MOCK_AGENT86_RECORD was set. */
@@ -56,16 +58,30 @@ export async function startBridge(
   agent86: string,
   env: Record<string, string> = {},
   extraArgs: string[] = [],
+  /** Reuse another bridge's workspace (to restart "the same" agent86-web). */
+  reuse: { workspace?: string } = {},
 ): Promise<Bridge> {
-  const workspace = realpathSync.native(mkdtempSync(join(tmpdir(), "agent86-web-e2e-ws-")));
-  mkdirSync(join(workspace, "project"));
+  const workspace =
+    reuse.workspace ?? realpathSync.native(mkdtempSync(join(tmpdir(), "agent86-web-e2e-ws-")));
+  if (!reuse.workspace) mkdirSync(join(workspace, "project"));
   // Each bridge gets its own mock session store, so tests do not see each other's sessions.
-  const db = join(mkdtempSync(join(tmpdir(), "agent86-web-e2e-db-")), "sessions.json");
+  const db =
+    env.MOCK_AGENT86_DB ??
+    join(mkdtempSync(join(tmpdir(), "agent86-web-e2e-db-")), "sessions.json");
+  const stateDir =
+    env.AGENT86_WEB_STATE_DIR ?? mkdtempSync(join(tmpdir(), "agent86-web-e2e-state-"));
   const child: ChildProcess = spawn(
     process.execPath,
     [CLI, "--root", workspace, "--agent86", agent86, "--no-open", ...extraArgs],
     {
-      env: { ...process.env, AGENT86_WEB_NO_UPDATE_CHECK: "1", MOCK_AGENT86_DB: db, ...env },
+      env: {
+        ...process.env,
+        AGENT86_WEB_NO_UPDATE_CHECK: "1",
+        AGENT86_WEB_PORT: "",
+        AGENT86_WEB_STATE_DIR: stateDir,
+        MOCK_AGENT86_DB: db,
+        ...env,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -95,6 +111,7 @@ export async function startBridge(
     origin: new URL(url).origin,
     workspace,
     db,
+    stateDir,
     env: { MOCK_AGENT86_DB: db, ...env },
     recorded: () => {
       const file = env.MOCK_AGENT86_RECORD;
@@ -118,7 +135,7 @@ export async function startBridge(
       }),
     stop: () =>
       new Promise((resolve) => {
-        if (child.exitCode !== null) return resolve();
+        if (child.exitCode !== null || child.signalCode !== null) return resolve();
         child.once("exit", () => resolve());
         child.kill("SIGTERM");
       }),

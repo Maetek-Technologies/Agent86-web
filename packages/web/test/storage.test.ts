@@ -3,14 +3,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   clampSidebar,
   cleanTitle,
-  loadPreferences,
   loadSidebar,
   localTitles,
-  savePreferences,
   saveSidebar,
   SIDEBAR_DEFAULT,
   SIDEBAR_MAX,
   SIDEBAR_MIN,
+  takeLegacyDefaultMode,
   TITLE_MAX,
 } from "../src/threads/storage.ts";
 
@@ -74,12 +73,19 @@ describe("local titles", () => {
   });
 });
 
-describe("preferences", () => {
-  it("defaults to agent86's mode and ignores unknown values", () => {
-    expect(loadPreferences()).toEqual({ mode: "default" });
-    savePreferences({ mode: "auto" });
-    expect(loadPreferences()).toEqual({ mode: "auto" });
-    window.localStorage.setItem("agent86web.prefs.v1", JSON.stringify({ mode: "yolo" }));
-    expect(loadPreferences()).toEqual({ mode: "default" });
+describe("the 0.2.0 default mode", () => {
+  it("is handed over once, then forgotten", () => {
+    expect(takeLegacyDefaultMode()).toBeUndefined();
+    window.localStorage.setItem("agent86web.prefs.v1", JSON.stringify({ mode: "deny" }));
+    expect(takeLegacyDefaultMode()).toBe("deny");
+    expect(window.localStorage.getItem("agent86web.prefs.v1")).toBeNull();
+    expect(takeLegacyDefaultMode()).toBeUndefined();
+  });
+
+  it("ignores agent86's default and unknown values", () => {
+    for (const mode of ["default", "yolo", 3]) {
+      window.localStorage.setItem("agent86web.prefs.v1", JSON.stringify({ mode }));
+      expect(takeLegacyDefaultMode()).toBeUndefined();
+    }
   });
 });

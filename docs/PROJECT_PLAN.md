@@ -61,9 +61,26 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 | M3 ✅ | **Tools and approvals** | Tool-call cards (`tool_call`, `tool_call_update`), `session/request_permission` dialog with a diff viewer for file edits and a command view for `run_command` | Edit a file in a test project through the browser with an approval, and decline one |
 | M4 ✅ | **Sessions, models, workspaces** | Session sidebar (`session/list`, `session/load` replay), workspace picker limited to `--root`, mode and model pickers (`session/set_config_option`, `config_option_update`), slash-command menu (`available_commands_update`), several threads at once, the project trust banner and dialog | Resume a session started at the terminal; switch model mid-thread; run two threads in parallel; trust a project and see its MCP servers start |
 | M5 ✅ | **Hardening and release** | Security review of the bridge, reconnect handling, the agent86 version check, packaging (`npx agent86-web` with the built SPA embedded), end-to-end tests in CI, user docs | v0.1.0 published to npm |
+| M7 | **0.3.0: settings that last** | The default approval mode kept by the bridge, each thread's mode and model restored on every reopen, "make default" in the thread header, a saved port (`--save-port`, `AGENT86_WEB_PORT`). Details below. | v0.3.0 published to npm |
 | M6 | **0.2.0: shell polish** | Resizable sessions panel, thread rename, a Quit button, a more useful logs drawer, a default approval mode, the `AGENT86` wordmark, clearer trust wording, and support for agent86 1.0.17 (session lists per workspace, `/rename`). Details below. | v0.2.0 published to npm |
 
 Milestones are vertical slices: each one leaves a usable app. Details for each are in [ARCHITECTURE.md](ARCHITECTURE.md) and [UI_DESIGN.md](UI_DESIGN.md).
+
+### M7: agent86-web 0.3.0
+
+Reported after 0.2.0, on 2026-11-14: the default mode was not kept between sessions, and a request to open on the same port every time.
+
+**Cause.** Checked against agent86 1.0.18 over ACP: `session/set_config_option` changes the mode and model for the running session only; `session/load` reports agent86's defaults (`[guardrails] approval`, `--approval`, else `ask`), not what the session last had; a second `session/new` also starts from the defaults. 0.2.0 kept the default in localStorage, which is per origin, and the bridge picked a free port on each start, so the default was lost with every restart. It also applied the default once per thread (`modeApplied`), so a thread reopened after a reload, an idle restart, or trust went back to agent86's default. The mock agent restored the saved mode on load, unlike agent86, which hid this from the tests.
+
+**7.1 Settings kept by the bridge** (bridge): `~/.agent86-web/settings.json` (`SettingsStore`, written atomically, 0600) holds `defaultMode` and `port`. `/api/info` reports both; `POST /api/settings` (cookie, origin, header) sets or clears `defaultMode` only. `AGENT86_WEB_STATE_DIR` moves the state directory (tests).
+
+**7.2 Each thread keeps its settings** (web): `ThreadMeta.settings` records the thread's mode and model as they change (header, Shift+Tab, `/mode`). On every `session/new` or `session/load`, `SettingsKeeper` sets them again (the model first, then the mode) before the thread is shown; a new thread with no remembered mode gets the default. A model that agent86 lists only later (a provider's live list) is set when listed, unless the user picks one first, and the thread says so after 20 s if it never is. Failures show as a warning in the transcript. 0.2.0's localStorage default moves to the bridge once.
+
+**7.3 The default from a thread** (web): "make default" beside the mode selector; `auto` asks first, like Settings.
+
+**7.4 A saved port** (bridge CLI): `--port`, then `AGENT86_WEB_PORT`, then the saved port, then any free port; `--save-port` saves `--port` (`--port 0` forgets it). A port in use stops the CLI with where the port came from and how to get past it. Settings & about shows the saved port and the command. A new launch link opened in an old tab on the same port reloads it, so it signs in.
+
+**7.5 Tests:** the mock agent now reopens sessions in its defaults, like agent86; bridge tests for the store, the port order, the API checks, and `EADDRINUSE`; unit tests for `SettingsKeeper`; Playwright tests for a reload, the default from a thread and from Settings, and a restart on a saved port (with a second start refused), plus a reload against the real agent86 (mode and model).
 
 ### M6: agent86-web 0.2.0
 

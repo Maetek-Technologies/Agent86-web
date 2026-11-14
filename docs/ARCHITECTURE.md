@@ -71,7 +71,7 @@ agent86-web/
 ### 3.1 Command line
 
 ```
-agent86-web [--root <dir>]... [--port <n>] [--host 127.0.0.1]
+agent86-web [--root <dir>]... [--port <n> [--save-port]] [--host 127.0.0.1]
             [--agent86 <path>] [--agent-arg <arg>]... [--no-open]
             [--max-agents <n>] [--idle-timeout <dur>]
 ```
@@ -79,7 +79,8 @@ agent86-web [--root <dir>]... [--port <n>] [--host 127.0.0.1]
 | Flag | Default | Meaning |
 |---|---|---|
 | `--root` | the current directory | A directory threads may run in (they may also run in its subdirectories). Repeatable. |
-| `--port` | `0` (any free port) | The port to listen on |
+| `--port` | `AGENT86_WEB_PORT`, else the saved port, else `0` (any free port) | The port to listen on. A port in use stops the bridge with a message. |
+| `--save-port` | off | Save `--port` in `~/.agent86-web/settings.json` for later starts; `--port 0 --save-port` forgets it |
 | `--host` | `127.0.0.1` | Bind address. Anything other than a loopback address is refused in phase 1. |
 | `--agent86` | `agent86` on `PATH` | The agent86 binary |
 | `--agent-arg` | — | Extra arguments placed before `acp`, e.g. `--agent-arg --model --agent-arg openrouter:x` |

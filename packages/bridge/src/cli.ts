@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { Agent86Error, detectAgent86 } from "./agent86.ts";
 import { parseDuration } from "./duration.ts";
+import { portProblem, resolvePort, SettingsStore } from "./settings.ts";
 import { updateCheckDisabled } from "./updates.ts";
 import { BRIDGE_VERSION, startBridge } from "./server.ts";
 import { realpath } from "./workspaces.ts";
@@ -16,7 +17,9 @@ Usage: agent86-web [options]
 
 Options:
   --root <dir>         A directory threads may run in (repeatable; default: the current directory)
-  --port <n>           Port to listen on (default: any free port)
+  --port <n>           Port to listen on (default: AGENT86_WEB_PORT, else the saved port,
+                       else any free port; 0 means any free port)
+  --save-port          Remember --port for every later start (--port 0 forgets it)
   --host <addr>        Loopback address to bind: 127.0.0.1 (default), ::1, or localhost
   --agent86 <path>     The agent86 command (default: agent86 on PATH)
   --agent-arg=<arg>    An argument for agent86, placed before \`acp\` (repeatable),
@@ -56,6 +59,7 @@ async function main(): Promise<number> {
       options: {
         root: { type: "string", multiple: true },
         port: { type: "string" },
+        "save-port": { type: "boolean", default: false },
         host: { type: "string", default: "127.0.0.1" },
         agent86: { type: "string", default: "agent86" },
         "agent-arg": { type: "string", multiple: true },
@@ -85,11 +89,39 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const port = values.port === undefined ? 0 : Number(values.port);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    process.stderr.write(`agent86-web: --port must be a number from 0 to 65535\n`);
+  // The bridge's own state (settings, trusted projects); AGENT86_WEB_STATE_DIR moves it (tests).
+  const stateDir = process.env.AGENT86_WEB_STATE_DIR || undefined;
+  const settings = new SettingsStore(stateDir);
+  if (values["save-port"]) {
+    if (values.port === undefined) {
+      process.stderr.write("agent86-web: --save-port needs --port <n>\n");
+      return 2;
+    }
+    const chosen = resolvePort(values.port, undefined, undefined);
+    if ("error" in chosen) {
+      process.stderr.write(`agent86-web: ${chosen.error}\n`);
+      return 2;
+    }
+    try {
+      settings.update({ port: chosen.port === 0 ? null : chosen.port });
+    } catch (error) {
+      process.stderr.write(
+        `agent86-web: could not save the port in ${settings.file}: ${(error as Error).message}\n`,
+      );
+      return 1;
+    }
+    process.stdout.write(
+      chosen.port === 0
+        ? "Forgot the saved port; agent86-web will use any free port.\n"
+        : `Saved port ${chosen.port} in ${settings.file}.\n`,
+    );
+  }
+  const chosen = resolvePort(values.port, process.env.AGENT86_WEB_PORT, settings.read().port);
+  if ("error" in chosen) {
+    process.stderr.write(`agent86-web: ${chosen.error}\n`);
     return 2;
   }
+  const { port, source } = chosen;
 
   const maxAgents = values["max-agents"] === undefined ? undefined : Number(values["max-agents"]);
   if (maxAgents !== undefined && (!Number.isInteger(maxAgents) || maxAgents < 1)) {
@@ -134,19 +166,30 @@ async function main(): Promise<number> {
     stopRequested = () => resolve("browser");
   });
 
-  const bridge = await startBridge({
-    roots,
-    host: values.host,
-    port,
-    agent86: { command: values.agent86, version, args: values["agent-arg"] ?? [] },
-    publicDir,
-    devOrigin: values["dev-origin"],
-    maxAgents,
-    idleTimeoutMs,
-    updateCheck: !values["no-update-check"] && !updateCheckDisabled() && !values["dev-origin"],
-    onShutdownRequested: () => stopRequested(),
-    log: (line) => process.stderr.write(`${line}\n`),
-  });
+  let bridge;
+  try {
+    bridge = await startBridge({
+      roots,
+      host: values.host,
+      port,
+      agent86: { command: values.agent86, version, args: values["agent-arg"] ?? [] },
+      publicDir,
+      stateDir,
+      devOrigin: values["dev-origin"],
+      maxAgents,
+      idleTimeoutMs,
+      updateCheck: !values["no-update-check"] && !updateCheckDisabled() && !values["dev-origin"],
+      onShutdownRequested: () => stopRequested(),
+      log: (line) => process.stderr.write(`${line}\n`),
+    });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EADDRINUSE" || code === "EACCES") {
+      process.stderr.write(`agent86-web: ${portProblem(port, source, code, settings.file)}\n`);
+      return 1;
+    }
+    throw error;
+  }
 
   process.stdout.write(
     `agent86-web ${BRIDGE_VERSION} (agent86 ${version})\n` +
