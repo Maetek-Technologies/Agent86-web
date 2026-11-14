@@ -2,7 +2,7 @@
 
 All notable changes to agent86-web. Release notes for each version are in [docs/releases/](docs/releases/).
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-11-14)
 
 Settings that last. See [docs/releases/v0.3.0.md](docs/releases/v0.3.0.md) and M7 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m7-agent86-web-030).
 
