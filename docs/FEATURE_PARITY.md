@@ -34,7 +34,8 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 | Terminal feature | ACP | Web UI | Status | Milestone |
 |---|---|---|---|---|
 | Approval panel with numbered choices | `session/request_permission` | An inline panel in the call's card, number keys and buttons, Esc rejects, and the tab title flags it | ✅ | M3 |
-| Coloured diff for file edits | permission `toolCall.content` text: agent86 sends a unified diff as text, not ACP's `diff` type | Unified diff viewer with line numbers and highlighting; a new file is shown as its content | ✅ (unified only; side-by-side later) | M3 |
+| Coloured diff for file edits | permission `toolCall.content`: ACP `diff` items (the whole file before and after) since agent86 1.0.19, a unified diff as text before (and for files over 256 KiB and replayed sessions) | A diff built from the whole file, with hunks and "whole file", in the approval and on the card; the text diff without `diff` items | ✅ (inline; side-by-side later) | M3, M8 |
+| The file a call works on | ACP `locations` (agent86 1.0.19) | The file and first changed line on the card, relative to the workspace, with copy | ✅ (no file view to open it in) | M8 |
 | Command preview for `run_command` / `python_exec` | permission request content | Highlighted command block | ✅ | M3 |
 | Warning for writes into agent86's own config or skills | permission request content | Shown prominently above the detail | ✅ | M3 |
 | Approval mode `ask`/`auto`/`deny`, Shift+Tab, `/mode` | `session/set_config_option`, `config_option_update` | A mode selector in the thread header | ✅ | M4 |
@@ -65,7 +66,7 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 
 | Terminal | ACP | Web UI | Status |
 |---|---|---|---|
-| `/cost` | slash command | Command, plus a "cost" button in the header | 🟡 On demand, not live |
+| `/cost` | slash command; `usage_update` (agent86 1.0.20) | Command, plus a "cost" button in the header; the session's cost live in the header with agent86 1.0.20 ("cost n/a" when unpriced) | ✅ (live with 1.0.20) |
 | `/tools` | slash command | Command | ✅ |
 | `/help` | — | Local help panel listing the available commands | ✅ |
 | `/skills`, `/memory`, `/limits` | not in agent86's ACP set | — | ⛔ (wishlist) |
@@ -80,7 +81,11 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 | Phase (thinking, running a tool) | derived from updates | Spinner plus a label | ✅ |
 | Approval mode | config option | Header | ✅ |
 | Sandbox type | not over ACP | — | ⛔ |
-| Tokens, context use, cost | not over ACP | `/cost` on demand | ⛔ (wishlist) |
+| Tokens, context use, cost | `usage_update` (agent86 1.0.20); per call, agent86's state events | A context meter and the session cost in the header; each turn's model calls and spend against the cap at its end | ✅ M8 (with 1.0.20) |
+| Compaction notice | `compaction_update` (agent86 1.0.20, opt-in) | One collapsed "Context compacted" entry with the summary | ✅ M8 |
+| Sub-agent progress and cost | agent86's state events (`subagent`, `model_call` with `card`) | Status, model calls, and cost on the delegation card | ✅ M8 |
+| Guardrail findings | agent86's state events (`guardrail`) | One quiet line in the thread, findings on request | ✅ M8 |
+| Routed model | agent86's state events (`route`) | "routed: <model>" in the header | ✅ M8 |
 
 ## Secrets, trust, configuration
 

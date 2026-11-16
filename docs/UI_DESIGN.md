@@ -63,7 +63,7 @@ On narrow screens (under about 768 px), the sidebar collapses into a drawer and 
 
 ### 3.3 Thread
 
-- **Header:** the model selector (grouped: Configured first, then each provider as its list arrives, with a spinner per group while loading), the mode selector (`ask` / `auto` / `deny` with a short explanation of each) with _make default_ beside it (or `(default)` when it is the default; `auto` asks first), a cost button (runs `/cost`), the session ID (copy, plus a hint: `agent86 --resume <id>`), and a logs drawer toggle.
+- **Header:** the model selector (grouped: Configured first, then each provider as its list arrives, with a spinner per group while loading), the routed model when triage routing chose one, the mode selector (`ask` / `auto` / `deny` with a short explanation of each) with _make default_ beside it (or `(default)` when it is the default; `auto` asks first), the turn's spend against the cap while it runs, a context meter and the session's cost (from `usage_update`; "cost n/a" when unpriced; absent with an older agent86), a cost button (runs `/cost`), the session ID (copy, plus a hint: `agent86 --resume <id>`), and a logs drawer toggle.
 - **Transcript** (the message types are in §4)
 - **Phase line,** shown while a turn runs: a spinner, a label (`Thinking…`, `Running <tool>…`, `Waiting for approval`, `Cancelling…`), elapsed time, and Stop.
 - **Input:** an auto-growing textarea with the workspace in its border. `/` opens the command menu (from `available_commands_update` plus local commands). `@` opens a file menu. Up and Down arrows recall history when the caret is at the start or end. The input is disabled while a turn runs, but text can be typed ahead.
@@ -91,10 +91,12 @@ agent86's stderr notes for this thread's process: MCP startup, ignored untrusted
 | User message | sent prompt / `user_message_chunk` on replay | Right-aligned or labeled "You", with file-link chips |
 | Assistant message | `agent_message_chunk` | Markdown (GFM tables, task lists), highlighted code with copy, links sanitized |
 | Thinking | `agent_thought_chunk` | Dimmed and collapsible, labeled `∴ Thinking (Ns · N chars)`. Expanded while streaming and before the answer starts, collapsed after (configurable). |
-| Tool call | `tool_call` / `tool_call_update` | A card showing the tool name, a one-line argument summary, a status icon (pending, running, done, failed, declined), the first line of the result, and an expander for the full arguments (JSON) and result. Failed cards have a red edge. |
+| Tool call | `tool_call` / `tool_call_update` | A card showing a kind icon (search has its own), the tool name, a one-line argument summary, a status icon (pending, running, done, failed, declined), the file and first changed line (ACP `locations`, with copy), the first line of the result, and an expander for the full arguments (JSON) and result. A file change shows once: a diff built from ACP `diff` items when there are any ("whole file" shows the unchanged lines), else the text diff. A delegation card shows its sub-agent's status, model calls, and cost (agent86's state events). Failed cards have a red edge. |
 | Permission request | `session/request_permission` | The card for the call switches to approval mode. It shows the diff or command, the warning if present, and one button per option, in agent86's order, with number shortcuts. The page title and favicon show a badge while an approval waits. An optional browser notification can fire if the tab is hidden. |
 | Notice / error | message text, prompt result | A compact system line. Errors are red and include the trace hint (`agent86 trace show -s <id>`). |
-| Turn end | `stopReason` | A subtle divider. `cancelled`, `max_tokens`, and refusals are labeled. |
+| Turn end | `stopReason` | A subtle divider. `cancelled`, `max_tokens`, and refusals are labeled. With agent86's state events it also shows the turn's model calls (expandable: step, model, tokens, cost) and its spend against the cap. |
+| Compaction | `compaction_update` | One collapsed entry, "Context compacted" (or failed, with why), opening to the summary |
+| Guardrail | agent86's `guardrail` event | One dimmed line naming what was flagged, findings on request |
 
 ## 5. Keyboard shortcuts
 

@@ -1,32 +1,16 @@
 // The 0.2.0 shell features (docs/PROJECT_PLAN.md, M6): resizing the sessions panel, renaming
 // threads, the default approval mode, the logs drawer, and Quit.
-import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import {
   mockAgent86,
   openThread,
+  realAgentAtLeast,
   recordFile,
   scriptedModel,
   startBridge,
   type Bridge,
 } from "./bridge.ts";
-
-/** Whether the real agent86 (AGENT86_BIN) is at least `version`. */
-function realAgentAtLeast(version: string): boolean {
-  const bin = process.env.AGENT86_BIN;
-  if (!bin) return false;
-  const out = execFileSync(bin, ["--version"], {
-    encoding: "utf8",
-    shell: process.platform === "win32",
-  });
-  const found = /(\d+)\.(\d+)\.(\d+)/.exec(out)?.slice(1).map(Number) ?? [0, 0, 0];
-  const wanted = version.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if (found[i]! !== wanted[i]!) return found[i]! > wanted[i]!;
-  }
-  return true;
-}
 
 const box = (page: Page) => page.getByRole("textbox", { name: "Message agent86" });
 const visible = (page: Page) => page.getByRole("tabpanel").filter({ visible: true });

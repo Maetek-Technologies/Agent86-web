@@ -22,6 +22,28 @@ export const FORCED_CLIENT_CAPABILITIES = {
   terminal: false,
 } as const;
 
+/** agent86's state events (agent86 docs/ACP.md): an opt-in that only adds notifications. */
+export const STATE_EXTENSION = "com.maetek.agent86/state";
+
+/**
+ * The browser's capabilities as agent86 will see them: files and terminal forced off, plus the
+ * opt-ins that only change how agent86 reports (never what it can do), copied when present:
+ * `session.compaction` (ACP `compaction_update`) and agent86's state events. Anything else the
+ * browser claims is dropped.
+ */
+export function clientCapabilities(claimed: unknown): Record<string, unknown> {
+  const caps: Record<string, unknown> = { ...FORCED_CLIENT_CAPABILITIES };
+  if (!isObject(claimed)) return caps;
+  if (isObject(claimed.session) && isObject(claimed.session.compaction)) {
+    caps.session = { compaction: {} };
+  }
+  if (isObject(claimed._meta)) {
+    const state = claimed._meta[STATE_EXTENSION];
+    if (state === true || isObject(state)) caps._meta = { [STATE_EXTENSION]: true };
+  }
+  return caps;
+}
+
 export interface PolicyContext {
   /** The real path the thread's agent86 process was started in. */
   workspace: string;
@@ -95,7 +117,10 @@ export function filterClientMessage(raw: string, ctx: PolicyContext): PolicyResu
 
   switch (method) {
     case "initialize": {
-      const next = { ...params, clientCapabilities: FORCED_CLIENT_CAPABILITIES };
+      const next = {
+        ...params,
+        clientCapabilities: clientCapabilities(params?.clientCapabilities),
+      };
       return { action: "forward", message: { ...message, params: next } };
     }
     case "session/new":

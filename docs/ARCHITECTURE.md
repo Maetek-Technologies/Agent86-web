@@ -148,7 +148,7 @@ The bridge inspects messages from the client to the agent for a short list of fi
 |---|---|
 | `session/new`, `session/load` `cwd` | Must resolve (with symlinks followed) inside a `--root`, and must match the directory the process was started in |
 | `session/new` `mcpServers` | Stripped in phase 1. A browser-supplied MCP server would be a command run as the user, so the browser does not get to choose one. agent86's configured `[mcp.servers.*]` still apply. |
-| `initialize` `clientCapabilities.fs` / `terminal` | Forced off. The browser does not own the files, so agent86's file tools use the disk. |
+| `initialize` `clientCapabilities.fs` / `terminal` | Forced off. The browser does not own the files, so agent86's file tools use the disk. Two opt-ins pass (rebuilt, not copied): `session.compaction` and agent86's state events (`_meta["com.maetek.agent86/state"]`); anything else is dropped. A thread's agent86 keeps the capabilities of its first `initialize` for its life. |
 | Frames that are not JSON, are larger than the limit, or have an unknown method | Dropped, with a JSON-RPC error |
 
 ## 4. The ACP client library

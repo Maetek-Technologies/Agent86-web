@@ -23,7 +23,25 @@ const version = process.env.MOCK_AGENT86_VERSION ?? "1.0.15";
 const name = process.env.MOCK_AGENT86_NAME ?? "agent86";
 /** agent86 1.0.17 added `/rename` and stopped listing sessions of unknown directory under every one. */
 const [major = 0, minor = 0, patch = 0] = version.split(".").map(Number);
-const v1017 = major > 1 || (major === 1 && (minor > 0 || patch >= 17));
+/** @param {number} at */
+const since = (at) => major > 1 || (major === 1 && (minor > 0 || patch >= at));
+const v1017 = since(17);
+/** agent86 1.0.19 sends file changes as ACP `diff` content, `locations`, and the `search` kind. */
+const v1019 = since(19);
+/**
+ * agent86 1.0.20 sends `usage_update`, `compaction_update` to a client that advertises
+ * `session.compaction`, and its state events to a client that asks (`_meta`).
+ */
+const v1020 = since(20);
+const STATE = "com.maetek.agent86/state";
+/** Dollars per call for the priced model; `mock:cheap-model` has no price, as unknown models do. */
+const CALL_COST = 0.0125;
+/** `[limits] max_cost_usd`, as MOCK_AGENT86_COST_CAP (none by default). */
+const COST_CAP = process.env.MOCK_AGENT86_COST_CAP
+  ? Number(process.env.MOCK_AGENT86_COST_CAP)
+  : null;
+/** What the client asked for in `initialize`. */
+const wants = { compaction: false, state: false };
 const record = process.env.MOCK_AGENT86_RECORD;
 const args = process.argv.slice(2);
 
@@ -214,6 +232,7 @@ function describe(tool) {
     case "edit_file": {
       const before = existsSync(path) ? readFileSync(path, "utf8") : "";
       const after = before.replace(args.old_string, args.new_string);
+      const line = before.slice(0, before.indexOf(args.old_string)).split("\n").length;
       const diff = before
         .split("\n")
         .map((line, i) => [line, after.split("\n")[i]])
@@ -223,6 +242,8 @@ function describe(tool) {
       const text = `--- a/${args.path}\n+++ b/${args.path}\n@@ -1 +1 @@\n${diff}`;
       return {
         approval: text,
+        diff: { path, oldText: before, newText: after },
+        line,
         run: () => {
           if (!before.includes(args.old_string))
             return { ok: false, text: `Error: old_string not found in ${args.path}` };
@@ -235,7 +256,10 @@ function describe(tool) {
       const lines = String(args.content).split("\n").filter(Boolean).length;
       const body = `new file: ${args.path} (${lines} lines)\n${args.content}`;
       const guarded = String(args.path).startsWith(".agent86/");
+      const old = existsSync(path) ? readFileSync(path, "utf8") : null;
       return {
+        diff: { path, oldText: old, newText: String(args.content) },
+        line: 1,
         approval: guarded
           ? `Warning: This writes agent86's own configuration or skills (${args.path}), which changes what agent86 runs or is told from now on. Asked even in auto mode.\n\n${body}`
           : body,
@@ -262,6 +286,13 @@ function describe(tool) {
         approval: args.code,
         run: () => ({ ok: true, text: "exit code: 0\nstdout:\n42\n" }),
       };
+    case "search_files":
+      return {
+        approval: undefined,
+        run: () => ({ ok: true, text: "README.md:1: The quick brown fox" }),
+      };
+    case "find_files":
+      return { approval: undefined, run: () => ({ ok: true, text: "README.md" }) };
     default:
       return {
         approval: undefined,
@@ -279,7 +310,14 @@ const KINDS = /** @type {const} */ ({
   run_command: "execute",
   python_exec: "execute",
   read_file: "read",
+  ...(v1019 ? { search_files: "search", find_files: "search" } : {}),
 });
+/** The file tools carry `locations` from 1.0.19. */
+const FILE_TOOLS = new Set(["read_file", "write_file", "edit_file"]);
+/** What each session has cost so far, for `usage_update`; undefined once a call was unpriced. */
+const spent = /** @type {Map<string, number | undefined>} */ (new Map());
+/** The turn's spend, for the state events. */
+const turnSpent = /** @type {Map<string, number>} */ (new Map());
 /** Sessions whose running turn was asked to stop. */
 const cancelled = new Set();
 /** @param {number} ms */
@@ -288,6 +326,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const app = agent({ name: "mock-agent86" })
   .onRequest(methods.agent.initialize, ({ params }) => {
     remember("initialize", params);
+    const caps = /** @type {any} */ (params.clientCapabilities ?? {});
+    wants.compaction = v1020 && !!caps.session?.compaction;
+    wants.state = v1020 && !!caps._meta?.[STATE];
     return {
       protocolVersion: 1,
       agentCapabilities: {
@@ -295,6 +336,7 @@ const app = agent({ name: "mock-agent86" })
         sessionCapabilities: { list: {} },
         promptCapabilities: { image: false, audio: false, embeddedContext: false },
         mcpCapabilities: { http: true, sse: true },
+        ...(v1020 ? { _meta: { [STATE]: { version: 1 } } } : {}),
       },
       agentInfo: { name, title: name, version },
       authMethods: [],
@@ -399,6 +441,57 @@ const app = agent({ name: "mock-agent86" })
         update: { sessionUpdate: kind, content: { type: "text", text: chunk } },
       });
     };
+    turnSpent.set(sessionId, 0);
+    let step = 0;
+    /** @param {Record<string, unknown>} event */
+    const emit = (event) =>
+      wants.state
+        ? client.notify("_com.maetek.agent86/session/event", {
+            sessionId,
+            event: { ts: Date.now() / 1000, ...event },
+          })
+        : Promise.resolve();
+    /**
+     * One model call, as agent86 1.0.20 reports it: `usage_update` to everyone, and the state
+     * event to a client that asked. `sub` makes it a sub-agent's call on that card.
+     * @param {string[]} toolCalls @param {{ card: string; agent: string; run: number }} [sub]
+     */
+    const modelCall = async (toolCalls, sub) => {
+      if (!v1020) return;
+      step += 1;
+      const priced = settings.model === DEFAULT_MODEL;
+      const cost = priced ? CALL_COST : undefined;
+      const before = spent.has(sessionId) ? spent.get(sessionId) : 0;
+      const total = before === undefined || cost === undefined ? undefined : before + cost;
+      spent.set(sessionId, total);
+      const turn = (turnSpent.get(sessionId) ?? 0) + (cost ?? 0);
+      turnSpent.set(sessionId, turn);
+      await client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "usage_update",
+          used: 1200 * step,
+          size: 200000,
+          ...(total !== undefined ? { cost: { amount: total, currency: "USD" } } : {}),
+        },
+      });
+      await emit({
+        kind: "model_call",
+        step,
+        model: settings.model.replace(/^mock:/, ""),
+        input_tokens: 1000,
+        output_tokens: 200,
+        cost_usd: cost ?? 0,
+        stop_reason: toolCalls.length ? "tool_use" : "end_turn",
+        tool_calls: toolCalls,
+        priced,
+        turn_cost_usd: turn,
+        cost_cap_usd: COST_CAP,
+        some_future_field: { ignored: true },
+        ...(sub ? { agent: sub.agent, depth: 1, run: sub.run, card: sub.card } : {}),
+      });
+    };
+
     /** Save the turn, as agent86 does whether the turn finished or not. @param {"end_turn" | "cancelled"} stopReason */
     const finish = (stopReason) => {
       saveSession(sessionId, (saved) => {
@@ -435,6 +528,112 @@ const app = agent({ name: "mock-agent86" })
       await say("agent_message_chunk", `tools: ${TOOLS.join(", ")}`);
       return { stopReason: "end_turn" };
     }
+    if (v1020 && /\bcompact\b/i.test(text)) {
+      // As agent86 1.0.20: a compaction is a `compaction_update` for a client that advertised
+      // `session.compaction`, else one ordinary message.
+      await modelCall([]);
+      const failed = /\bfail/i.test(text);
+      const summary = "Summary: the user fixed a typo in README.md and asked for notes.";
+      if (wants.compaction) {
+        await client.notify(methods.client.session.update, {
+          sessionId,
+          update: failed
+            ? {
+                sessionUpdate: "compaction_update",
+                compactionId: `cmp-${nextCall}`,
+                status: "failed",
+                error: "the summary request failed: HTTP 500",
+              }
+            : {
+                sessionUpdate: "compaction_update",
+                compactionId: `cmp-${nextCall}`,
+                status: "completed",
+                summary: [{ type: "text", text: summary }],
+              },
+        });
+        nextCall++;
+      } else {
+        await say(
+          "agent_message_chunk",
+          failed ? "Compaction failed." : `Context compacted. ${summary}`,
+        );
+      }
+      return finish("end_turn");
+    }
+    const delegate = /^\/agent\s+(\S+)\s+([\s\S]+)$/.exec(text);
+    if (delegate) {
+      // As agent86: a delegation is one card; 1.0.20 reports the sub-agent in its state events.
+      const agentName = String(delegate[1]);
+      const task = String(delegate[2]);
+      const card = `agent-${agentName}-${nextCall++}`;
+      const run = nextCall;
+      await client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: card,
+          title: `${agentName}: ${task}`,
+          name: "agent",
+          kind: "other",
+          status: "pending",
+          rawInput: { agent: agentName, task },
+        },
+      });
+      await client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: card,
+          status: "in_progress",
+          content: [{ type: "content", content: { type: "text", text: `${agentName} started` } }],
+        },
+      });
+      await emit({
+        kind: "subagent",
+        phase: "started",
+        card,
+        run,
+        agent: agentName,
+        depth: 1,
+        task,
+      });
+      await modelCall([], { card, agent: agentName, run });
+      await modelCall([], { card, agent: agentName, run });
+      const priced = settings.model === DEFAULT_MODEL;
+      await emit({
+        kind: "subagent",
+        phase: "finished",
+        card,
+        run,
+        agent: agentName,
+        depth: 1,
+        ok: true,
+        input_tokens: 2000,
+        output_tokens: 400,
+        cost_usd: priced ? 2 * CALL_COST : 0,
+      });
+      await client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: card,
+          status: "completed",
+          content: [
+            { type: "content", content: { type: "text", text: `${agentName}: done (${task})` } },
+          ],
+        },
+      });
+      return finish("end_turn");
+    }
+    if (/ignore all previous instructions/i.test(text)) {
+      await emit({
+        kind: "guardrail",
+        stage: "ingress_input",
+        findings: "injection:override-instructions, injection:prompt-extraction",
+      });
+    }
+    if (/\broute\b/i.test(text)) await emit({ kind: "route", model: "mock:cheap-model" });
+    await emit({ kind: "a_kind_from_the_future", detail: 1 });
     if (/fail/i.test(text)) {
       // agent86 sends a model failure as a bare -32603 with the provider's message.
       throw new RequestError(
@@ -448,6 +647,12 @@ const app = agent({ name: "mock-agent86" })
       const title = `${tool.name}(${JSON.stringify(tool.arguments)})`;
       const kind = KINDS[/** @type {keyof typeof KINDS} */ (tool.name)] ?? "other";
       await say("agent_thought_chunk", `I will use ${tool.name}.`);
+      await modelCall([tool.name]);
+      const { approval, run, diff, line } = describe(tool);
+      const file =
+        v1019 && FILE_TOOLS.has(tool.name) && typeof tool.arguments.path === "string"
+          ? join(process.cwd(), tool.arguments.path)
+          : undefined;
       await client.notify(methods.client.session.update, {
         sessionId,
         update: {
@@ -457,9 +662,12 @@ const app = agent({ name: "mock-agent86" })
           kind,
           status: "pending",
           rawInput: tool.arguments,
+          ...(file ? { locations: [{ path: file }] } : {}),
         },
       });
-      const { approval, run } = describe(tool);
+      /** As agent86 1.0.19: a write's change as `diff` content, ahead of the same text. */
+      const diffItems = v1019 && diff ? [{ type: "diff", ...diff }] : [];
+      const located = file ? { locations: [{ path: file, ...(line ? { line } : {}) }] } : {};
       let allowed = true;
       const guarded = approval?.startsWith("Warning:") ?? false;
       if (approval !== undefined && settings.mode === "deny") {
@@ -474,7 +682,8 @@ const app = agent({ name: "mock-agent86" })
             kind,
             status: "pending",
             rawInput: tool.arguments,
-            content: [{ type: "content", content: { type: "text", text: approval } }],
+            content: [...diffItems, { type: "content", content: { type: "text", text: approval } }],
+            ...(diff ? located : {}),
           },
           options: [
             { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
@@ -499,13 +708,19 @@ const app = agent({ name: "mock-agent86" })
           sessionUpdate: "tool_call_update",
           toolCallId,
           status: outcome.ok ? "completed" : "failed",
-          content: [{ type: "content", content: { type: "text", text: outcome.text } }],
+          content: [
+            ...(outcome.ok ? diffItems : []),
+            { type: "content", content: { type: "text", text: outcome.text } },
+          ],
+          ...(outcome.ok && diff ? located : {}),
         },
       });
       if (cancelled.has(sessionId)) return finish("cancelled");
+      await modelCall([]);
       await say("agent_message_chunk", `Tool result: ${outcome.text.slice(0, 300)}`);
       return finish("end_turn");
     }
+    await modelCall([]);
     const { reasoning, content, delayMs } = script(text, settings.model.replace(/^mock:/, ""));
     for (const [kind, pieces] of /** @type {const} */ ([
       ["agent_thought_chunk", reasoning],

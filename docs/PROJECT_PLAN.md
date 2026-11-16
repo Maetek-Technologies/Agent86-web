@@ -62,9 +62,24 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 | M4 ✅ | **Sessions, models, workspaces** | Session sidebar (`session/list`, `session/load` replay), workspace picker limited to `--root`, mode and model pickers (`session/set_config_option`, `config_option_update`), slash-command menu (`available_commands_update`), several threads at once, the project trust banner and dialog | Resume a session started at the terminal; switch model mid-thread; run two threads in parallel; trust a project and see its MCP servers start |
 | M5 ✅ | **Hardening and release** | Security review of the bridge, reconnect handling, the agent86 version check, packaging (`npx agent86-web` with the built SPA embedded), end-to-end tests in CI, user docs | v0.1.0 published to npm |
 | M6 ✅ | **0.2.0: shell polish** | Resizable sessions panel, thread rename, a Quit button, a more useful logs drawer, a default approval mode, the `AGENT86` wordmark, clearer trust wording, and support for agent86 1.0.17 (session lists per workspace, `/rename`). Details below. | v0.2.0 published to npm |
+| M8 | **0.4.0: agent86 1.0.19 and 1.0.20 over ACP** | Diffs from ACP `diff` content, `locations`, the `search` kind, `usage_update`, `compaction_update`, agent86's state events, the namespaced session-list marker; each detected, with the 0.3.0 look as the fallback. Details below. | v0.4.0 published to npm |
 | M7 ✅ | **0.3.0: settings that last** | The default approval mode kept by the bridge, each thread's mode and model restored on every reopen, "make default" in the thread header, a saved port (`--save-port`, `AGENT86_WEB_PORT`). Details below. | v0.3.0 published to npm |
 
 Milestones are vertical slices: each one leaves a usable app. Details for each are in [ARCHITECTURE.md](ARCHITECTURE.md) and [UI_DESIGN.md](UI_DESIGN.md).
+
+### M8: agent86-web 0.4.0
+
+agent86 1.0.19 and 1.0.20 added to its ACP server (agent86 docs/ACP.md, the contract). Every feature is detected from what agent86 sends or advertises, never its version, and unknown update kinds, event kinds, and fields are ignored.
+
+**Checked first, against the real agent86 1.0.20** (a recorded run against `mock-openai.js`, kept as `packages/acp-client/test/fixtures/agent86-1.0.20.ts`): the shapes match the doc. `findings` in a `guardrail` event is a comma-separated string. `usage_update` comes once per model call (11 calls, 11 updates; none extra at turn end). A new file's text item is `new file: <path> (n lines)` and its content, not a unified diff. The ACP SDK (2.6.0) knows `usage_update` and `compaction_update`; an update kind it does not know is dropped with a console line, not an error.
+
+**8.1 Bridge:** `initialize`'s capabilities were replaced wholesale, which would have dropped both opt-ins. Files and terminal stay forced off; `session.compaction` and agent86's state request are rebuilt and passed; anything else is dropped (SECURITY T9). The relay is unchanged: agent86's messages reach the browser as written. `/api/sessions` drops entries marked as of unknown folder (`_meta["com.maetek.agent86/cwdKnown"]`, else `_meta.agent86.cwdKnown`); a filtered list from agent86 1.0.17 or later has none.
+
+**8.2 Client:** asks for compaction and the state events in `initialize` (it must, before the answer says whether agent86 offers them), and reads the events only when `agentCapabilities._meta["com.maetek.agent86/state"].version` is 1. Tool calls and permission requests keep `diff` items (`FileDiff`) and `locations` apart from their text. The session state adds the latest `usage`, compaction and guardrail entries, the turn's spend (main-agent calls, `turn_cost_usd`, the cap, whether every call was priced), sub-agent runs keyed by `card`, and the routed model.
+
+**8.3 Web:** a line diff (Myers, with common lines stripped first and a cap past which a change is one replaced block) feeding the existing diff table; the approval and the card show one diff; the location line; kind icons; the header's context meter, cost ("cost n/a" when unpriced), routed model, and live spend meter; the compaction, guardrail, and turn-end entries; the sub-agent section on delegation cards.
+
+**8.4 Tests:** recorded and documented fixtures for each feature and its absence, including an unpriced `usage_update`; the mock agent sends 1.0.19 and 1.0.20's messages when set to those versions; Playwright against the mock as 1.0.20 and 1.0.17, and against the real agent86 1.0.20 (skipped for older agent86, as CI runs 1.0.15).
 
 ### M7: agent86-web 0.3.0
 

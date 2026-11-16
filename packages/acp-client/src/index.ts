@@ -15,12 +15,14 @@ export {
   STDERR_METHOD,
   TurnRunningError,
   type Agent86ClientOptions,
+  type Agent86Features,
   type Clock,
   type FileLink,
   type LogState,
   type Untrusted,
 } from "./agent86-client.ts";
 export * from "./session-state.ts";
+export * from "./agent86-events.ts";
 export type {
   AvailableCommand,
   InitializeResponse,

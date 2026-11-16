@@ -11,6 +11,23 @@ import type {
   ToolCallStatus,
   ToolKind,
 } from "@agentclientprotocol/sdk";
+import type { Agent86Event, ModelCall } from "./agent86-events.ts";
+
+/**
+ * A file change as agent86 1.0.19 sends it (ACP `diff` content): the whole file before (null for a
+ * new file) and after. Files over 256 KiB on either side, and replayed sessions, come as text only.
+ */
+export interface FileDiff {
+  path: string;
+  oldText: string | null;
+  newText: string;
+}
+
+/** A file a tool call works on (ACP `locations`); `line` is 1-based, the first changed line. */
+export interface FileLocation {
+  path: string;
+  line?: number;
+}
 
 export interface UserEntry {
   kind: "user";
@@ -44,8 +61,14 @@ export interface ToolEntry {
   rawInput?: unknown;
   /** The text content the agent reported for the call (its result, for agent86). */
   output: string;
+  /** The file changes in the call's latest content, when agent86 sends them as `diff` items. */
+  diffs?: FileDiff[];
+  /** The files the call works on, from agent86's latest `locations`. */
+  locations?: FileLocation[];
   /** What the call would do, as shown when approval was asked: a diff, a command, the arguments. */
   preview?: string;
+  /** The file changes shown when approval was asked, when agent86 sent them as `diff` items. */
+  previewDiffs?: FileDiff[];
   /** How the approval for this call was answered, if one was asked. */
   decision?: PermissionDecision;
 }
@@ -63,6 +86,9 @@ export interface PendingPermission {
   rawInput?: unknown;
   /** The detail the user decides on (agent86 sends a diff, a command, or the arguments). */
   text: string;
+  /** The change as `diff` items (agent86 1.0.19 and later); `text` is then the same change. */
+  diffs?: FileDiff[];
+  locations?: FileLocation[];
   /** The choices, in the agent's order. */
   options: PermissionOption[];
 }
@@ -81,9 +107,76 @@ export interface TurnEndEntry {
   id: number;
   stopReason: StopReason | "error";
   durationMs: number;
+  /** What the turn's model calls cost, when agent86 sent its state events. */
+  spend?: TurnSpend;
 }
 
-export type Entry = UserEntry | AgentEntry | ThoughtEntry | ToolEntry | NoticeEntry | TurnEndEntry;
+/** A compaction of the session into a summary (ACP `compaction_update`), keyed by its id. */
+export interface CompactionEntry {
+  kind: "compaction";
+  id: number;
+  compactionId: string;
+  /** `in_progress`, `completed`, `failed`, `cancelled`, or a later status. */
+  status: string;
+  summary: string;
+  error?: string;
+}
+
+/** A guardrail flagged something (agent86's state events). */
+export interface GuardrailEntry {
+  kind: "guardrail";
+  id: number;
+  stage: string;
+  findings: string[];
+}
+
+export type Entry =
+  | UserEntry
+  | AgentEntry
+  | ThoughtEntry
+  | ToolEntry
+  | NoticeEntry
+  | TurnEndEntry
+  | CompactionEntry
+  | GuardrailEntry;
+
+/** The context window and the session's cost, from ACP `usage_update` (agent86 1.0.20). */
+export interface Usage {
+  /** Tokens of the context window the last request used. */
+  used: number;
+  size: number;
+  /** What the session has cost so far. Absent when agent86 has no price: unknown, not zero. */
+  cost?: { amount: number; currency: string };
+}
+
+/** The current turn's model calls and spend, from agent86's state events. */
+export interface TurnSpend {
+  /** The main agent's calls; a sub-agent's are on its delegation (`subagents`). */
+  calls: ModelCall[];
+  /** The turn's spend so far, sub-agents included, as agent86 reports it. */
+  spentUsd?: number;
+  /** False once any call (a sub-agent's too) had no price: the spend is then a lower bound. */
+  priced: boolean;
+  /** `[limits] max_cost_usd`, or null when there is no cap. */
+  capUsd: number | null;
+}
+
+/** A sub-agent run on a delegation card, from agent86's state events. */
+export interface SubagentInfo {
+  card: string;
+  agent?: string;
+  depth?: number;
+  run?: number;
+  task?: string;
+  status: "running" | "done" | "failed";
+  calls: ModelCall[];
+  inputTokens?: number;
+  outputTokens?: number;
+  /** The run's total cost; absent while running or when unknown. */
+  costUsd?: number;
+  /** False once one of its calls had no price. */
+  priced: boolean;
+}
 
 /** An entry before it has an id. `Omit` over a union would merge the members, so distribute it. */
 export type NewEntry = Entry extends infer E ? (E extends Entry ? Omit<E, "id"> : never) : never;
@@ -105,6 +198,14 @@ export interface SessionState {
   title?: string;
   /** Permission requests waiting for an answer, oldest first. */
   permissions: PendingPermission[];
+  /** The latest `usage_update`, if agent86 sends them. */
+  usage?: Usage;
+  /** The running or last turn's spend, if agent86 sends its state events. */
+  turnSpend?: TurnSpend;
+  /** Sub-agent runs by the tool call id of their delegation card. */
+  subagents: Record<string, SubagentInfo>;
+  /** The model triage routing picked for the latest turn. */
+  routedModel?: string;
   /** Why the connection ended, once it has. */
   closed?: string;
   nextId: number;
@@ -123,6 +224,7 @@ export function initialState(
     configOptions,
     commands: [],
     permissions: [],
+    subagents: {},
     nextId: 1,
   };
 }
@@ -145,16 +247,52 @@ export function contentText(block: ContentBlock): string {
   }
 }
 
+/** The text items of a call's content. `diff` items are kept apart (see toolDiffs). */
 function toolOutput(content: ToolCallContent[] | null | undefined): string | undefined {
   if (!content) return undefined;
   return content
-    .map((item) => {
-      if (item.type === "content") return contentText(item.content);
-      if (item.type === "diff") return `diff ${item.path}`;
-      return "";
-    })
+    .map((item) => (item.type === "content" ? contentText(item.content) : ""))
     .filter(Boolean)
     .join("\n");
+}
+
+/** The `diff` items of a call's content: undefined when there is no content, else maybe none. */
+export function toolDiffs(content: ToolCallContent[] | null | undefined): FileDiff[] | undefined {
+  if (!content) return undefined;
+  return content
+    .filter((item) => item.type === "diff" && typeof item.newText === "string")
+    .map((item) => {
+      const diff = item as Extract<ToolCallContent, { type: "diff" }>;
+      return { path: diff.path, oldText: diff.oldText ?? null, newText: diff.newText };
+    });
+}
+
+/** ACP `locations`, keeping only what is usable. */
+export function toolLocations(locations: unknown): FileLocation[] | undefined {
+  if (!Array.isArray(locations)) return undefined;
+  return locations
+    .filter(
+      (l): l is { path: string; line?: unknown } =>
+        typeof l === "object" && l !== null && typeof (l as { path?: unknown }).path === "string",
+    )
+    .map((l) =>
+      typeof l.line === "number" && Number.isInteger(l.line) && l.line > 0
+        ? { path: l.path, line: l.line }
+        : { path: l.path },
+    );
+}
+
+/** Set or clear an optional list on an entry: an empty list clears it. */
+function withList<T extends object, K extends keyof T>(
+  entry: T,
+  key: K,
+  list: unknown[] | undefined,
+): T {
+  if (list === undefined) return entry;
+  const next = { ...entry };
+  if (list.length) (next as Record<K, unknown>)[key] = list;
+  else delete next[key];
+  return next;
 }
 
 function withEntry(state: SessionState, entry: NewEntry): SessionState {
@@ -181,7 +319,8 @@ function endThought(state: SessionState, now: number): SessionState {
 /** The user sent a prompt: show it and start the turn. */
 export function startTurn(state: SessionState, text: string, now: number): SessionState {
   const next = withEntry(state, { kind: "user", text });
-  return { ...next, turn: { running: true, startedAt: now, cancelRequested: false } };
+  const { turnSpend: _spent, routedModel: _routed, ...rest } = next;
+  return { ...rest, turn: { running: true, startedAt: now, cancelRequested: false } };
 }
 
 export function requestCancel(state: SessionState): SessionState {
@@ -221,6 +360,7 @@ export function endTurn(state: SessionState, stopReason: StopReason, now: number
     kind: "turn-end",
     stopReason,
     durationMs: now - (state.turn.startedAt ?? now),
+    ...(state.turnSpend ? { spend: state.turnSpend } : {}),
   });
   return { ...next, turn: { running: false, cancelRequested: false } };
 }
@@ -248,6 +388,7 @@ export function failTurn(state: SessionState, message: string, now: number): Ses
     kind: "turn-end",
     stopReason: "error",
     durationMs: now - (state.turn.startedAt ?? now),
+    ...(state.turnSpend ? { spend: state.turnSpend } : {}),
   });
   return { ...next, turn: { running: false, cancelRequested: false } };
 }
@@ -296,7 +437,12 @@ export function addPermission(
       ...(request.rawInput !== undefined ? { rawInput: request.rawInput } : {}),
     });
   }
-  next = updateTool(next, request.toolCallId, (entry) => ({ ...entry, preview: request.text }));
+  next = updateTool(next, request.toolCallId, (entry) => {
+    let updated: ToolEntry = { ...entry, preview: request.text };
+    updated = withList(updated, "previewDiffs", request.diffs ?? []);
+    if (request.locations?.length) updated.locations = request.locations;
+    return updated;
+  });
   return { state: next, id };
 }
 
@@ -345,6 +491,10 @@ export function applyUpdate(state: SessionState, update: SessionUpdate, now: num
       if (update.name) entry.name = update.name;
       if (update.kind) entry.toolKind = update.kind;
       if (update.rawInput !== undefined) entry.rawInput = update.rawInput;
+      const diffs = toolDiffs(update.content);
+      if (diffs?.length) entry.diffs = diffs;
+      const locations = toolLocations(update.locations);
+      if (locations?.length) entry.locations = locations;
       return withEntry(next, entry);
     }
     case "tool_call_update": {
@@ -360,10 +510,34 @@ export function applyUpdate(state: SessionState, update: SessionUpdate, now: num
       if (update.rawInput !== undefined) updated.rawInput = update.rawInput;
       const output = toolOutput(update.content);
       if (output !== undefined) updated.output = output;
+      const withDiffs = withList(updated, "diffs", toolDiffs(update.content));
+      const withPlaces = withList(withDiffs, "locations", toolLocations(update.locations));
       const entries = [...state.entries];
-      entries[index] = updated;
+      entries[index] = withPlaces;
       return { ...state, entries };
     }
+    case "usage_update": {
+      const usage: Usage = { used: update.used, size: update.size };
+      const cost = update.cost;
+      if (cost && typeof cost.amount === "number" && typeof cost.currency === "string") {
+        usage.cost = { amount: cost.amount, currency: cost.currency };
+      }
+      return { ...state, usage };
+    }
+    case "compaction_update": {
+      const summary = (update.summary ?? []).map(contentText).join("");
+      return upsertCompaction(endThought(state, now), update.compactionId, (entry) => {
+        const next: CompactionEntry = { ...entry, status: String(update.status) };
+        if (update.summary) next.summary = summary;
+        if (typeof update.error === "string" && update.error) next.error = update.error;
+        return next;
+      });
+    }
+    case "compaction_summary_chunk":
+      return upsertCompaction(endThought(state, now), update.compactionId, (entry) => ({
+        ...entry,
+        summary: entry.summary + contentText(update.content),
+      }));
     case "available_commands_update":
       return { ...state, commands: update.availableCommands };
     case "config_option_update":
@@ -372,6 +546,112 @@ export function applyUpdate(state: SessionState, update: SessionUpdate, now: num
       return typeof update.title === "string" && update.title
         ? { ...state, title: update.title }
         : state;
+    default:
+      return state;
+  }
+}
+
+/** Find a compaction's entry by its id, or add one, and change it. */
+function upsertCompaction(
+  state: SessionState,
+  compactionId: string,
+  change: (entry: CompactionEntry) => CompactionEntry,
+): SessionState {
+  const index = state.entries.findIndex(
+    (e) => e.kind === "compaction" && e.compactionId === compactionId,
+  );
+  if (index >= 0) {
+    const entries = [...state.entries];
+    entries[index] = change(entries[index] as CompactionEntry);
+    return { ...state, entries };
+  }
+  const fresh: CompactionEntry = {
+    kind: "compaction",
+    id: state.nextId,
+    compactionId,
+    status: "in_progress",
+    summary: "",
+  };
+  return { ...state, entries: [...state.entries, change(fresh)], nextId: state.nextId + 1 };
+}
+
+function callOf(event: Extract<Agent86Event, { kind: "model_call" }>): ModelCall {
+  const {
+    kind: _kind,
+    ts: _ts,
+    priced: _p,
+    turnCostUsd: _t,
+    costCapUsd: _c,
+    card: _card,
+    agent: _a,
+    depth: _d,
+    run: _r,
+    ...call
+  } = event;
+  return call;
+}
+
+/** Fold one of agent86's state events into the state. Unknown kinds never reach here. */
+export function applyEvent(state: SessionState, event: Agent86Event, now: number): SessionState {
+  switch (event.kind) {
+    case "model_call": {
+      const current: TurnSpend = state.turnSpend ?? { calls: [], priced: true, capUsd: null };
+      const spend: TurnSpend = {
+        ...current,
+        capUsd: event.costCapUsd,
+        priced: current.priced && event.priced,
+        ...(event.turnCostUsd !== undefined ? { spentUsd: event.turnCostUsd } : {}),
+      };
+      if (!event.card) {
+        return { ...state, turnSpend: { ...spend, calls: [...current.calls, callOf(event)] } };
+      }
+      const run = state.subagents[event.card] ?? {
+        card: event.card,
+        status: "running" as const,
+        calls: [],
+        priced: true,
+      };
+      const updated: SubagentInfo = {
+        ...run,
+        calls: [...run.calls, callOf(event)],
+        priced: run.priced && event.priced,
+      };
+      if (event.agent && !updated.agent) updated.agent = event.agent;
+      return {
+        ...state,
+        turnSpend: spend,
+        subagents: { ...state.subagents, [event.card]: updated },
+      };
+    }
+    case "subagent": {
+      const known = state.subagents[event.card];
+      const base: SubagentInfo =
+        event.phase === "started" || !known
+          ? { card: event.card, status: "running", calls: [], priced: true }
+          : known;
+      const info: SubagentInfo = {
+        ...base,
+        ...(event.agent !== undefined ? { agent: event.agent } : {}),
+        ...(event.depth !== undefined ? { depth: event.depth } : {}),
+        ...(event.run !== undefined ? { run: event.run } : {}),
+        ...(event.task !== undefined ? { task: event.task } : {}),
+      };
+      if (event.phase === "finished") {
+        info.status = event.ok === false ? "failed" : "done";
+        if (event.inputTokens !== undefined) info.inputTokens = event.inputTokens;
+        if (event.outputTokens !== undefined) info.outputTokens = event.outputTokens;
+        if (event.costUsd !== undefined && info.priced) info.costUsd = event.costUsd;
+      }
+      return { ...state, subagents: { ...state.subagents, [event.card]: info } };
+    }
+    case "guardrail":
+      return withEntry(endThought(state, now), {
+        kind: "guardrail",
+        stage: event.stage,
+        findings: event.findings,
+      });
+    case "route":
+      return { ...state, routedModel: event.model };
     default:
       return state;
   }

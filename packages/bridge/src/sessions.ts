@@ -10,6 +10,37 @@ export interface SessionSummary {
   updatedAt?: string;
 }
 
+/**
+ * Whether agent86 knows the session's folder. An unknown one is marked in `_meta` with a stand-in
+ * `cwd`: since agent86 1.0.20 as `"com.maetek.agent86/cwdKnown": false`, before that (and for a
+ * while beside it) as `"agent86": {"cwdKnown": false}`. The namespaced key is read first.
+ */
+export function cwdKnown(entry: unknown): boolean {
+  const meta = (entry as { _meta?: unknown } | null)?._meta;
+  if (typeof meta !== "object" || meta === null) return true;
+  const record = meta as Record<string, unknown>;
+  const namespaced = record["com.maetek.agent86/cwdKnown"];
+  if (typeof namespaced === "boolean") return namespaced;
+  const old = record.agent86 as { cwdKnown?: unknown } | undefined;
+  return typeof old?.cwdKnown === "boolean" ? old.cwdKnown : true;
+}
+
+/**
+ * A workspace's sessions from agent86's answer: its folder is not known for a marked one, so it
+ * belongs to no workspace and is left out (agent86 docs/ACP.md, "Session list"). A filtered list
+ * from agent86 1.0.17 or later has none; this keeps it so if that changes.
+ */
+export function workspaceSessions(sessions: unknown): SessionSummary[] {
+  if (!Array.isArray(sessions)) return [];
+  return sessions.filter(
+    (s): s is SessionSummary =>
+      typeof s === "object" &&
+      s !== null &&
+      typeof (s as SessionSummary).sessionId === "string" &&
+      cwdKnown(s),
+  );
+}
+
 export async function listSessions(
   command: string,
   args: readonly string[],
@@ -47,7 +78,7 @@ export async function listSessions(
           buffer = buffer.slice(newline + 1);
           let message: {
             id?: unknown;
-            result?: { sessions?: SessionSummary[] };
+            result?: { sessions?: unknown };
             error?: { message?: string };
           };
           try {
@@ -64,7 +95,7 @@ export async function listSessions(
           clearTimeout(timer);
           if (message.error)
             reject(new Error(message.error.message ?? "agent86 refused to list sessions"));
-          else resolve(message.result?.sessions ?? []);
+          else resolve(workspaceSessions(message.result?.sessions));
         }
       });
       send({ jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: 1 } });

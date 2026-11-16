@@ -1,6 +1,8 @@
 import type { Agent86Client, AgentSession } from "@agent86-web/acp-client";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useDefaultMode } from "../threads/defaultMode.ts";
+import { contextPercent, formatCost, formatTokens } from "./format.ts";
+import { SpendMeter } from "./Spend.tsx";
 
 type ConfigOption = ReturnType<AgentSession["getState"]>["configOptions"][number];
 type Choice = { value: string; name: string };
@@ -102,6 +104,46 @@ function LogLines({ lines }: { lines: string[] }) {
   );
 }
 
+/**
+ * The context window and the session's cost, from ACP `usage_update` (agent86 1.0.20). Nothing
+ * until one arrives; an unpriced model's cost reads "n/a", never $0.00.
+ */
+function UsageMeter({
+  usage,
+}: {
+  usage: NonNullable<ReturnType<AgentSession["getState"]>["usage"]>;
+}) {
+  const percent = contextPercent(usage.used, usage.size);
+  const tone = percent >= 90 ? "bg-error" : percent >= 75 ? "bg-warn" : "bg-accent";
+  return (
+    <span className="flex items-center gap-2 font-mono text-muted" data-testid="usage">
+      <span
+        className="flex items-center gap-1.5"
+        title={`Context: ${usage.used.toLocaleString()} of ${usage.size.toLocaleString()} tokens used by the last request`}
+      >
+        ctx
+        <span
+          role="meter"
+          aria-label="Context window used"
+          aria-valuemin={0}
+          aria-valuemax={usage.size}
+          aria-valuenow={usage.used}
+          className="inline-block h-1.5 w-14 overflow-hidden rounded bg-panel-2"
+        >
+          <span className={`block h-full ${tone}`} style={{ width: `${percent}%` }} />
+        </span>
+        {formatTokens(usage.used)}/{formatTokens(usage.size)}
+      </span>
+      <span
+        data-testid="session-cost"
+        title={usage.cost ? "This session's cost so far" : "agent86 has no price for this model"}
+      >
+        {usage.cost ? formatCost(usage.cost.amount, usage.cost.currency) : "cost n/a"}
+      </span>
+    </span>
+  );
+}
+
 /** The thread's settings and tools: model, approval mode, cost, logs (docs/UI_DESIGN.md §3.3). */
 export function ThreadHeader({
   session,
@@ -159,6 +201,15 @@ export function ThreadHeader({
             onChange={(v) => change(option.id, v)}
           />
         ))}
+        {state.routedModel && (
+          <span
+            className="font-mono text-xs text-muted"
+            data-testid="routed-model"
+            title="The model triage routing chose for this turn"
+          >
+            routed: {state.routedModel}
+          </span>
+        )}
         {currentMode &&
           defaults.set &&
           (currentMode === defaults.mode ? (
@@ -179,6 +230,12 @@ export function ThreadHeader({
             </button>
           ))}
         <div className="ml-auto flex items-center gap-2 text-xs">
+          {busy && state.turnSpend && (
+            <span className="text-muted">
+              <SpendMeter spend={state.turnSpend} />
+            </span>
+          )}
+          {state.usage && <UsageMeter usage={state.usage} />}
           <button
             type="button"
             onClick={onCost}

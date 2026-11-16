@@ -1,5 +1,5 @@
 // Starts the built bridge (packages/bridge/dist) for an end-to-end test.
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -152,7 +152,8 @@ export function recordFile(): string {
  * and a home directory whose agent86 config points at it, so a turn needs no key or network.
  */
 export async function scriptedModel(
-  options: { config?: string } = {},
+  /** `pricing`: a price for mock:test-model and a $0.50 cap (`[limits] max_cost_usd`). */
+  options: { config?: string; pricing?: boolean } = {},
 ): Promise<{ env: Record<string, string>; stop: () => Promise<void> }> {
   const { createMockOpenAI } = (await import(MOCK_OPENAI)) as {
     createMockOpenAI: () => import("node:http").Server;
@@ -179,6 +180,17 @@ export async function scriptedModel(
         "[memory]",
         'embeddings = "hash:384"',
         "",
+        ...(options.pricing
+          ? [
+              '[pricing.models."mock:test-model"]',
+              "input_per_mtok = 3.0",
+              "output_per_mtok = 15.0",
+              "",
+              "[limits]",
+              "max_cost_usd = 0.50",
+              "",
+            ]
+          : []),
       ].join("\n"),
   );
   return {
@@ -203,4 +215,20 @@ export async function openThread(
     .getByRole("button", { name: /^New thread in / })
     .click();
   await page.getByRole("textbox", { name: "Message agent86" }).waitFor();
+}
+
+/** Whether the real agent86 (AGENT86_BIN) is at least `version`. */
+export function realAgentAtLeast(version: string): boolean {
+  const bin = process.env.AGENT86_BIN;
+  if (!bin) return false;
+  const out = execFileSync(bin, ["--version"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  const found = /(\d+)\.(\d+)\.(\d+)/.exec(out)?.slice(1).map(Number) ?? [0, 0, 0];
+  const wanted = version.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (found[i]! !== wanted[i]!) return found[i]! > wanted[i]!;
+  }
+  return true;
 }

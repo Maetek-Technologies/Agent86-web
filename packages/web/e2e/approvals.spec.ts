@@ -90,7 +90,9 @@ function approvalFlows(start: () => Promise<Bridge>) {
     await send(page, "add a skill");
     const panel = page.getByRole("group", { name: "Approval needed: write_file" });
     await expect(panel.getByRole("note")).toContainText("agent86's own configuration or skills");
-    await expect(panel).toContainText("new file: .agent86/skills/demo/SKILL.md");
+    // As text before agent86 1.0.19 ("new file: <path>"), as a diff of a new file since.
+    await expect(panel).toContainText(/new file/);
+    await expect(panel).toContainText("SKILL.md");
     await page.keyboard.press("2");
     await expect(card(page)).toHaveAttribute("data-state", "declined");
     expect(existsSync(join(bridge.workspace, ".agent86", "skills", "demo", "SKILL.md"))).toBe(

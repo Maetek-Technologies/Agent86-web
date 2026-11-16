@@ -135,8 +135,11 @@ describe("ToolCard after the call", () => {
     expect(screen.queryByText("Approved change")).toBeNull();
     expect(screen.getByText("Result")).toBeTruthy();
     expect(screen.getAllByTestId("diff")).toHaveLength(1);
-    // Highlighting loads lazily, then the JSON arguments are coloured.
-    await waitFor(() => expect(document.querySelector(".hljs-attr")).not.toBeNull());
+    // Highlighting loads lazily, then the JSON arguments are coloured. The first load can take
+    // over a second when the whole suite runs at once.
+    await waitFor(() => expect(document.querySelector(".hljs-attr")).not.toBeNull(), {
+      timeout: 5000,
+    });
   });
 
   it("shows a declined change when there is no result diff", () => {
