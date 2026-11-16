@@ -124,8 +124,14 @@ export function Thread({
   };
 
   const context = useMemo(
-    () => ({ session, permissions: state.permissions, expandAll }),
-    [session, state.permissions, expandAll],
+    () => ({
+      session,
+      permissions: state.permissions,
+      expandAll,
+      cwd: state.cwd,
+      subagents: state.subagents,
+    }),
+    [session, state.permissions, expandAll, state.cwd, state.subagents],
   );
 
   return (

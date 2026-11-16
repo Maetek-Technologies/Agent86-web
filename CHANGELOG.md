@@ -2,6 +2,17 @@
 
 All notable changes to agent86-web. Release notes for each version are in [docs/releases/](docs/releases/).
 
+## 0.4.0 (unreleased)
+
+agent86 1.0.19 and 1.0.20's ACP additions, each detected from what agent86 sends or advertises, so an older agent86 looks as before. See [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md) and M8 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m8-agent86-web-040).
+
+- File edits as real diffs, built from the whole file before and after (agent86 1.0.19's ACP `diff` content), in the approval and on the finished card, with "whole file". Fixed: a stray `diff <path>` line above an edit's result with agent86 1.0.19.
+- The file and first changed line on file tool cards (ACP `locations`), and an icon of its own for search tools.
+- A context meter and the session's cost in the thread header (ACP `usage_update`, agent86 1.0.20); "cost n/a" when agent86 has no price.
+- A compaction as one collapsed entry with its summary (ACP `compaction_update`, opt-in).
+- With agent86's state events (1.0.20, opt-in): each turn's model calls and spend against the cost cap, a sub-agent's status, calls, and cost on its delegation card, guardrail notices, and the routed model.
+- The session list reads agent86 1.0.20's namespaced folder marker, falling back to the old one.
+
 ## 0.3.0 (2026-11-14)
 
 Settings that last. See [docs/releases/v0.3.0.md](docs/releases/v0.3.0.md) and M7 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m7-agent86-web-030).

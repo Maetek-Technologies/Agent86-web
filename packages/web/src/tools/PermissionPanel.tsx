@@ -2,6 +2,7 @@ import type { PendingPermission } from "@agent86-web/acp-client";
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { parseApprovalText } from "./approval.ts";
 import { DetailView } from "./DetailView.tsx";
+import { FileDiffs } from "./DiffView.tsx";
 
 /**
  * The approval for one tool call (docs/UI_DESIGN.md §4). It is styled unlike anything the model
@@ -67,7 +68,8 @@ export function PermissionPanel({
           <strong>Warning:</strong> {warning}
         </div>
       )}
-      <DetailView detail={detail} />
+      {/* agent86 1.0.19 sends a write's change as `diff` items; its text is then the same change. */}
+      {request.diffs?.length ? <FileDiffs diffs={request.diffs} /> : <DetailView detail={detail} />}
       <div className="flex flex-wrap items-center gap-2">
         {request.options.map((option, i) => {
           const allow = option.kind.startsWith("allow");

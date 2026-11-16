@@ -10,6 +10,8 @@
 //   contains "command"   calls run_command (echo)
 //   contains "python"    calls python_exec
 //   contains "read"      calls read_file on README.md (no approval needed)
+//   contains "search"    calls search_files for "quick" (no approval needed)
+//   contains "find"      calls find_files for "*.md" (no approval needed)
 //   contains "skill"     calls write_file into .agent86/skills (agent86 warns about it)
 //   anything else        a short reasoning trace, then "Hello from the mock model. You said: <text>"
 //
@@ -73,6 +75,9 @@ export function toolFor(prompt) {
   if (/\bpython\b/i.test(prompt))
     return { name: "python_exec", arguments: { code: "print(6 * 7)" } };
   if (/\bread\b/i.test(prompt)) return { name: "read_file", arguments: { path: "README.md" } };
+  if (/\bsearch\b/i.test(prompt))
+    return { name: "search_files", arguments: { pattern: "quick", path: "." } };
+  if (/\bfind\b/i.test(prompt)) return { name: "find_files", arguments: { pattern: "*.md" } };
   return undefined;
 }
 

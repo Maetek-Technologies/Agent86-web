@@ -18,7 +18,14 @@ import {
   type Compatibility,
 } from "./handshake.ts";
 import {
+  advertisesState,
+  parseEventParams,
+  STATE_EVENT_METHOD,
+  type Agent86Event,
+} from "./agent86-events.ts";
+import {
   addNotice,
+  applyEvent,
   addPermission,
   applyUpdate,
   endTurn,
@@ -28,6 +35,8 @@ import {
   requestCancel,
   resolvePermission,
   startTurn,
+  toolDiffs,
+  toolLocations,
   type PermissionDecision,
   type SessionState,
 } from "./session-state.ts";
@@ -276,6 +285,8 @@ export class AgentSession {
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     }
     const { toolCall } = params;
+    const diffs = toolDiffs(toolCall.content);
+    const locations = toolLocations(toolCall.locations);
     const text = (toolCall.content ?? [])
       .map((item) =>
         item.type === "content" && item.content.type === "text" ? item.content.text : "",
@@ -291,6 +302,8 @@ export class AgentSession {
         ...(toolCall.rawInput !== undefined ? { rawInput: toolCall.rawInput } : {}),
         text,
         options: params.options,
+        ...(diffs?.length ? { diffs } : {}),
+        ...(locations?.length ? { locations } : {}),
       },
       this.now(),
     );
@@ -303,6 +316,11 @@ export class AgentSession {
   /** Show a note from the client in the transcript (agent86 never sees it). */
   notice(level: "info" | "warning" | "error", text: string, hint?: string): void {
     this.set(addNotice(this.state, level, text, hint));
+  }
+
+  /** @internal Called by the client for agent86's state events, when agent86 offers them. */
+  handleEvent(event: Agent86Event): void {
+    this.set(applyEvent(this.state, event, this.now()));
   }
 
   /** @internal After a load: the replayed history is in; keep the session's settings. */
@@ -319,6 +337,12 @@ export class AgentSession {
 
 export interface Agent86ClientOptions {
   now?: Clock;
+}
+
+/** What this agent86 offers beyond the core protocol, from its `initialize` answer. */
+export interface Agent86Features {
+  /** agent86's state events (`com.maetek.agent86/state`, version 1). */
+  state: boolean;
 }
 
 /** An initialized ACP connection to agent86. */
@@ -347,12 +371,16 @@ export class Agent86Client {
     for (const listener of this.logListeners) listener();
   }
 
+  /** What agent86 offers beyond the core protocol, detected from its `initialize` answer. */
+  readonly features: Agent86Features;
+
   private constructor(
     readonly connection: ClientConnection,
     readonly init: InitializeResponse,
     readonly compatibility: Compatibility,
     private readonly now: Clock,
   ) {
+    this.features = { state: advertisesState(init.agentCapabilities) };
     void connection.closed.then(
       () => this.closeAll("The connection to agent86 closed."),
       (error: unknown) => this.closeAll(errorMessage(error)),
@@ -380,6 +408,15 @@ export class Agent86Client {
             if (self) self.addLog(params.line);
             else early.push(params.line);
           }
+        },
+      )
+      .onNotification(
+        STATE_EVENT_METHOD,
+        // Lenient: an event this client cannot read is dropped here, never an error.
+        (params: unknown) => parseEventParams(params) ?? null,
+        ({ params }) => {
+          if (!params || !self?.features.state) return;
+          self.sessions.get(params.sessionId)?.handleEvent(params.event);
         },
       )
       .onRequest(methods.client.session.requestPermission, ({ params }) => {

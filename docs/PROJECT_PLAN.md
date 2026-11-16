@@ -1,7 +1,7 @@
 # Project plan
 
-**Status:** v0.3.0 published (M7)
-**Last updated:** 2026-11-14
+**Status:** v0.3.0 published (M7). M8 built, and the version bumped to 0.4.0; publishing needs the merge and a `v0.4.0` tag
+**Last updated:** 2026-11-15
 **Upstream baseline:** agent86 v1.0.15 (`Maetek-Technologies/agent86@fef902d`)
 
 This document is the source of truth for what agent86-web is, what it is not, and the order it will be built in. Update it whenever a milestone lands or a decision changes.
@@ -62,9 +62,24 @@ agent86-web is a **browser interface for the agent86 you already run**. It shows
 | M4 ✅ | **Sessions, models, workspaces** | Session sidebar (`session/list`, `session/load` replay), workspace picker limited to `--root`, mode and model pickers (`session/set_config_option`, `config_option_update`), slash-command menu (`available_commands_update`), several threads at once, the project trust banner and dialog | Resume a session started at the terminal; switch model mid-thread; run two threads in parallel; trust a project and see its MCP servers start |
 | M5 ✅ | **Hardening and release** | Security review of the bridge, reconnect handling, the agent86 version check, packaging (`npx agent86-web` with the built SPA embedded), end-to-end tests in CI, user docs | v0.1.0 published to npm |
 | M6 ✅ | **0.2.0: shell polish** | Resizable sessions panel, thread rename, a Quit button, a more useful logs drawer, a default approval mode, the `AGENT86` wordmark, clearer trust wording, and support for agent86 1.0.17 (session lists per workspace, `/rename`). Details below. | v0.2.0 published to npm |
+| M8 | **0.4.0: agent86 1.0.19 and 1.0.20 over ACP** | Diffs from ACP `diff` content, `locations`, the `search` kind, `usage_update`, `compaction_update`, agent86's state events, the namespaced session-list marker; each detected, with the 0.3.0 look as the fallback. Details below. | v0.4.0 published to npm |
 | M7 ✅ | **0.3.0: settings that last** | The default approval mode kept by the bridge, each thread's mode and model restored on every reopen, "make default" in the thread header, a saved port (`--save-port`, `AGENT86_WEB_PORT`). Details below. | v0.3.0 published to npm |
 
 Milestones are vertical slices: each one leaves a usable app. Details for each are in [ARCHITECTURE.md](ARCHITECTURE.md) and [UI_DESIGN.md](UI_DESIGN.md).
+
+### M8: agent86-web 0.4.0
+
+agent86 1.0.19 and 1.0.20 added to its ACP server (agent86 docs/ACP.md, the contract). Every feature is detected from what agent86 sends or advertises, never its version, and unknown update kinds, event kinds, and fields are ignored.
+
+**Checked first, against the real agent86 1.0.20** (a recorded run against `mock-openai.js`, kept as `packages/acp-client/test/fixtures/agent86-1.0.20.ts`): the shapes match the doc. `findings` in a `guardrail` event is a comma-separated string. `usage_update` comes once per model call (11 calls, 11 updates; none extra at turn end). A new file's text item is `new file: <path> (n lines)` and its content, not a unified diff. The ACP SDK (2.6.0) knows `usage_update` and `compaction_update`; an update kind it does not know is dropped with a console line, not an error.
+
+**8.1 Bridge:** `initialize`'s capabilities were replaced wholesale, which would have dropped both opt-ins. Files and terminal stay forced off; `session.compaction` and agent86's state request are rebuilt and passed; anything else is dropped (SECURITY T9). The relay is unchanged: agent86's messages reach the browser as written. `/api/sessions` drops entries marked as of unknown folder (`_meta["com.maetek.agent86/cwdKnown"]`, else `_meta.agent86.cwdKnown`); a filtered list from agent86 1.0.17 or later has none.
+
+**8.2 Client:** asks for compaction and the state events in `initialize` (it must, before the answer says whether agent86 offers them), and reads the events only when `agentCapabilities._meta["com.maetek.agent86/state"].version` is 1. Tool calls and permission requests keep `diff` items (`FileDiff`) and `locations` apart from their text. The session state adds the latest `usage`, compaction and guardrail entries, the turn's spend (main-agent calls, `turn_cost_usd`, the cap, whether every call was priced), sub-agent runs keyed by `card`, and the routed model.
+
+**8.3 Web:** a line diff (Myers, with common lines stripped first and a cap past which a change is one replaced block) feeding the existing diff table; the approval and the card show one diff; the location line; kind icons; the header's context meter, cost ("cost n/a" when unpriced), routed model, and live spend meter; the compaction, guardrail, and turn-end entries; the sub-agent section on delegation cards.
+
+**8.4 Tests:** recorded and documented fixtures for each feature and its absence, including an unpriced `usage_update`; the mock agent sends 1.0.19 and 1.0.20's messages when set to those versions; Playwright against the mock as 1.0.20 and 1.0.17, and against the real agent86 1.0.20 (skipped for older agent86, as CI runs 1.0.15).
 
 ### M7: agent86-web 0.3.0
 
@@ -185,3 +200,4 @@ Phase 1 uses only what `agent86 acp` offers today. Some terminal features have n
 | 2026-11-13 | **v0.2.0 published** to npm with provenance, and the GitHub release created from `docs/releases/v0.2.0.md` (Release run after the `v0.2.0` tag on the PR #4 merge). |
 | 2026-11-14 | **M7 built (up to publishing).** Reported: the default mode was not kept between sessions. Cause, checked against agent86 1.0.18: agent86 keeps neither mode nor model with a session, 0.2.0 kept the default per origin while the port changed on every start, and applied it once per thread; the mock agent hid it by restoring the mode on load. Bridge: `~/.agent86-web/settings.json` (default mode, port), `POST /api/settings`, `--save-port` and `AGENT86_WEB_PORT`, a clear error for a port in use. Web: each thread's mode and model set again on every reopen before it is shown, "make default" in the thread header, the saved port in Settings, 0.2.0's browser default moved once, a new launch link signs an old tab in. Tests: 247 unit and component tests (24 new), 75 Playwright tests (4 new, one against the real agent86 1.0.18). Found: two real-agent86 tests and the `@` mention test fail on Windows only (the mention test fixed); the real-agent86 trust test is flaky under parallel load on 0.2.0 as well. Version bumped to 0.3.0; remaining: merge, then push the `v0.3.0` tag to publish. |
 | 2026-11-14 | **v0.3.0 published** to npm with provenance, and the GitHub release created from `docs/releases/v0.3.0.md` (PR #5 merged, `v0.3.0` tag on the merge commit; every CI job passed, including end to end against the real agent86). npm listed it as `latest` about three minutes after the publish step. |
+| 2026-11-15 | **M8 built (up to publishing).** agent86 1.0.19 and 1.0.20's ACP additions, each detected from what agent86 sends or advertises: diffs from ACP `diff` content (built in the browser, capped), `locations`, the `search` kind, `usage_update` (context meter, session cost, "cost n/a" when unpriced), `compaction_update` (opt-in), and agent86's state events (opt-in; per-step cost, turn spend against the cap, sub-agents on their cards, guardrail notices, the routed model). Bridge: `initialize` passes the two opt-ins, files and terminal still off; the session list reads the namespaced folder marker. Found, against the real agent86 1.0.20: `findings` is a string; `usage_update` comes once per model call, none extra at turn end; a delegation card's last update kept "<agent> started" rather than the result (reported for agent86); and agent86 1.0.19 already gave edits a stray `diff <path>` line (fixed). Tests: 308 unit and component tests (63 new), 81 Playwright tests (6 new, one against the real agent86 1.0.20). Version bumped to 0.4.0; remaining: merge, then push the `v0.4.0` tag to publish. |
