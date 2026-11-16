@@ -2,7 +2,7 @@
 
 All notable changes to agent86-web. Release notes for each version are in [docs/releases/](docs/releases/).
 
-## 0.4.1 (unreleased)
+## 0.4.1 (2026-11-16)
 
 agent86 1.0.21's ACP additions, each detected from what agent86 advertises or sends, so an older agent86 looks and reconnects as before. See [docs/releases/v0.4.1.md](docs/releases/v0.4.1.md) and M9 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m9-agent86-web-041).
 
