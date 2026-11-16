@@ -8,6 +8,7 @@ import {
   type InitializeResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
+  type ResumeSessionResponse,
   type SessionNotification,
   type Stream,
 } from "@agentclientprotocol/sdk";
@@ -18,7 +19,9 @@ import {
   type Compatibility,
 } from "./handshake.ts";
 import {
+  advertisesResume,
   advertisesState,
+  parseAsker,
   parseEventParams,
   STATE_EVENT_METHOD,
   type Agent86Event,
@@ -28,9 +31,11 @@ import {
   applyEvent,
   addPermission,
   applyUpdate,
+  continueState,
   endTurn,
   failTurn,
   initialState,
+  interruptTurn,
   markClosed,
   requestCancel,
   resolvePermission,
@@ -108,8 +113,11 @@ export class AgentSession {
     cwd: string,
     configOptions: SessionState["configOptions"],
     private readonly now: Clock,
+    private readonly features: Agent86Features = { state: false, resume: false },
+    /** A transcript to carry on from (a session reopened with `session/resume`). */
+    from?: SessionState,
   ) {
-    this.state = initialState(sessionId, cwd, configOptions);
+    this.state = from ? continueState(from) : initialState(sessionId, cwd, configOptions);
   }
 
   get id(): string {
@@ -160,7 +168,9 @@ export class AgentSession {
       this.set(endTurn(this.state, result.stopReason, this.now()));
     } catch (error) {
       this.cancelPermissions();
-      if (this.state.closed) return;
+      // The connection went (agent86 exited, the bridge went away): not the turn's own error.
+      // markClosed records that it ended during a turn, whichever of the two is seen first.
+      if (this.state.closed || this.connection.signal.aborted) return;
       this.set(failTurn(this.state, errorMessage(error), this.now()));
     }
   }
@@ -287,6 +297,8 @@ export class AgentSession {
     const { toolCall } = params;
     const diffs = toolDiffs(toolCall.content);
     const locations = toolLocations(toolCall.locations);
+    // Who asks: only read when agent86 offers its state events, as the rest of the extension.
+    const asker = this.features.state ? parseAsker(params._meta) : undefined;
     const text = (toolCall.content ?? [])
       .map((item) =>
         item.type === "content" && item.content.type === "text" ? item.content.text : "",
@@ -304,6 +316,7 @@ export class AgentSession {
         options: params.options,
         ...(diffs?.length ? { diffs } : {}),
         ...(locations?.length ? { locations } : {}),
+        ...(asker ? { asker } : {}),
       },
       this.now(),
     );
@@ -321,6 +334,14 @@ export class AgentSession {
   /** @internal Called by the client for agent86's state events, when agent86 offers them. */
   handleEvent(event: Agent86Event): void {
     this.set(applyEvent(this.state, event, this.now()));
+  }
+
+  /**
+   * agent86 stopped partway through a turn (its process ended; see the thread manager). Mark that
+   * turn interrupted; `startedAt` is when it began, if known.
+   */
+  markInterrupted(startedAt?: number): void {
+    this.set(interruptTurn(this.state, this.now(), startedAt));
   }
 
   /** @internal After a load: the replayed history is in; keep the session's settings. */
@@ -341,8 +362,21 @@ export interface Agent86ClientOptions {
 
 /** What this agent86 offers beyond the core protocol, from its `initialize` answer. */
 export interface Agent86Features {
-  /** agent86's state events (`com.maetek.agent86/state`, version 1). */
+  /**
+   * agent86's state events (`com.maetek.agent86/state`, version 1), with, from 1.0.21, the
+   * questions queue and who asks on a sub-agent's permission request.
+   */
   state: boolean;
+  /** `session/resume` (`sessionCapabilities.resume`, agent86 1.0.21): reopen without replay. */
+  resume: boolean;
+}
+
+/** How to wait out a turn that a page which has since gone started. */
+export interface ReopenOptions {
+  waitForTurn?: boolean;
+  retryMs?: number;
+  onWaiting?: () => void;
+  signal?: AbortSignal;
 }
 
 /** An initialized ACP connection to agent86. */
@@ -380,7 +414,10 @@ export class Agent86Client {
     readonly compatibility: Compatibility,
     private readonly now: Clock,
   ) {
-    this.features = { state: advertisesState(init.agentCapabilities) };
+    this.features = {
+      state: advertisesState(init.agentCapabilities),
+      resume: advertisesResume(init.agentCapabilities),
+    };
     void connection.closed.then(
       () => this.closeAll("The connection to agent86 closed."),
       (error: unknown) => this.closeAll(errorMessage(error)),
@@ -451,6 +488,7 @@ export class Agent86Client {
       cwd,
       result.configOptions ?? [],
       this.now,
+      this.features,
     );
     this.sessions.set(session.id, session);
     return session;
@@ -464,23 +502,59 @@ export class Agent86Client {
   async loadSession(
     sessionId: string,
     cwd: string,
-    options: {
-      waitForTurn?: boolean;
-      retryMs?: number;
-      onWaiting?: () => void;
-      signal?: AbortSignal;
-    } = {},
+    options: ReopenOptions = {},
+  ): Promise<AgentSession> {
+    return this.reopen("load", sessionId, cwd, undefined, options);
+  }
+
+  /**
+   * Reopen a saved session without a replay (`session/resume`, agent86 1.0.21), carrying on from
+   * `from`, the transcript the client still has. Only when `features.resume` is set: the spec
+   * forbids it otherwise. agent86 answers an unknown session with -32002.
+   */
+  async resumeSession(
+    sessionId: string,
+    cwd: string,
+    from: SessionState | undefined,
+    options: ReopenOptions = {},
+  ): Promise<AgentSession> {
+    if (!this.features.resume) throw new Error("This agent86 cannot resume sessions.");
+    return this.reopen("resume", sessionId, cwd, from, options);
+  }
+
+  private async reopen(
+    how: "load" | "resume",
+    sessionId: string,
+    cwd: string,
+    from: SessionState | undefined,
+    options: ReopenOptions,
   ): Promise<AgentSession> {
     for (;;) {
       // A fresh session each attempt, so a refused attempt leaves no half-replayed history.
-      const session = new AgentSession(this.connection, sessionId, cwd, [], this.now);
+      const session = new AgentSession(
+        this.connection,
+        sessionId,
+        cwd,
+        [],
+        this.now,
+        this.features,
+        from?.sessionId === sessionId ? from : undefined,
+      );
       this.sessions.set(sessionId, session);
       try {
-        const result = await this.connection.agent.request(methods.agent.session.load, {
-          sessionId,
-          cwd,
-          mcpServers: [],
-        });
+        // Both take the same params: an absolute cwd and the full MCP server list again.
+        const result: ResumeSessionResponse =
+          how === "resume"
+            ? await this.connection.agent.request(methods.agent.session.resume, {
+                sessionId,
+                cwd,
+                mcpServers: [],
+              })
+            : await this.connection.agent.request(methods.agent.session.load, {
+                sessionId,
+                cwd,
+                mcpServers: [],
+              });
         session.handleLoaded(result.configOptions ?? []);
         return session;
       } catch (error) {

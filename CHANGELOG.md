@@ -2,6 +2,16 @@
 
 All notable changes to agent86-web. Release notes for each version are in [docs/releases/](docs/releases/).
 
+## 0.4.1 (unreleased)
+
+agent86 1.0.21's ACP additions, each detected from what agent86 advertises or sends, so an older agent86 looks and reconnects as before. See [docs/releases/v0.4.1.md](docs/releases/v0.4.1.md) and M9 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m9-agent86-web-041).
+
+- A sub-agent's approval says which sub-agent asks (with a link to its delegation card), the git worktree it works in, and its spend beside the turn's and the cap.
+- An approval inbox beside the thread: the question being asked and those waiting behind it, in agent86's order, with a count; it empties when the turn is stopped.
+- Reconnecting reopens the session with `session/resume` when agent86 offers it and the tab still has the conversation, so nothing is replayed; `session/load` otherwise.
+- A turn cut off by agent86 stopping is shown as interrupted once the thread reconnects with the steps agent86 kept, with a Continue button.
+- A cost under $0.0001 shows as "<$0.0001"; the bridge logs each agent86's process id.
+
 ## 0.4.0 (2026-11-15)
 
 agent86 1.0.19 and 1.0.20's ACP additions, each detected from what agent86 sends or advertises, so an older agent86 looks as before. See [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md) and M8 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m8-agent86-web-040).

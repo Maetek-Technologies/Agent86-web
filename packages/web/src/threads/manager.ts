@@ -5,6 +5,7 @@ import {
   TurnRunningError,
   webSocketStream,
   type AgentSession,
+  type SessionState,
 } from "@agent86-web/acp-client";
 import { acpUrl, saveDefaultMode } from "../api.ts";
 import { newThreadId } from "../token.ts";
@@ -50,6 +51,8 @@ export interface ThreadSnapshot {
 
 /** Close codes the bridge uses (packages/bridge/src/agent-process.ts and threads.ts). */
 const REPLACED = 4000;
+/** agent86's process ended; the bridge starts a new one when the thread reconnects. */
+const AGENT_EXITED = 1011;
 const TOO_MANY = 1013;
 const RECONNECT_MAX_MS = 10_000;
 
@@ -98,6 +101,10 @@ export class ThreadHandle {
   private renameRefused: string | undefined;
   /** Keeps the current session's mode and model in the thread. */
   private keeper: SettingsKeeper | undefined;
+  /** The last connection closed because agent86's process ended (see `connect`). */
+  private agentExited = false;
+  /** Another tab took the thread over, so this tab's transcript may be out of date. */
+  private copyStale = false;
 
   constructor(
     meta: ThreadMeta,
@@ -234,6 +241,8 @@ export class ThreadHandle {
   async connect(fresh = false): Promise<void> {
     clearTimeout(this.retryTimer);
     this.closedByUs = false;
+    // The transcript this tab still has, if any, and how its connection ended.
+    const previous = this.snapshot.session?.getState();
     this.unwatch?.();
     this.unwatch = undefined;
     this.stopKeeping();
@@ -267,11 +276,7 @@ export class ThreadHandle {
       let session: AgentSession;
       if (meta.sessionId) {
         this.update({ phase: "loading" });
-        session = await client.loadSession(meta.sessionId, meta.workspace, {
-          waitForTurn: true,
-          onWaiting: () => this.update({ phase: "waiting-turn" }),
-        });
-        this.log(`reopened session ${session.id}`);
+        session = await this.reopen(client, meta.sessionId, meta.workspace, previous);
       } else {
         this.update({ phase: "starting" });
         try {
@@ -284,6 +289,8 @@ export class ThreadHandle {
         this.log(`started session ${session.id}`);
       }
       if (this.socket !== socket) return;
+      this.agentExited = false;
+      this.copyStale = false;
       this.setMeta({ sessionId: session.id });
       await this.restoreSettings(session);
       if (this.socket !== socket) return;
@@ -311,11 +318,61 @@ export class ThreadHandle {
     }
   }
 
+  /**
+   * Reopen the thread's saved session. With a transcript in this tab that is still complete, and
+   * an agent86 that offers `session/resume` (1.0.21), resume it: nothing is replayed and the tab
+   * carries on from what it shows. Otherwise load it, which replays the history. The copy is
+   * incomplete when a turn was running as the connection dropped while agent86 lived on (it went
+   * on without this tab), or another tab took the thread over.
+   *
+   * When agent86's process ended partway through a turn, 1.0.21 kept the steps it finished: the
+   * turn is shown as interrupted, with a way to continue.
+   */
+  private async reopen(
+    client: Agent86Client,
+    sessionId: string,
+    workspace: string,
+    previous: SessionState | undefined,
+  ): Promise<AgentSession> {
+    const options = {
+      waitForTurn: true,
+      onWaiting: () => this.update({ phase: "waiting-turn" as const }),
+    };
+    const cut = !!previous && (previous.turn.running || !!previous.closedDuringTurn);
+    const startedAt = previous?.turn.startedAt ?? previous?.closedDuringTurn?.startedAt;
+    const interrupted = cut && this.agentExited;
+    const copy =
+      previous?.sessionId === sessionId && !this.copyStale && (!cut || interrupted)
+        ? previous
+        : undefined;
+    let session: AgentSession | undefined;
+    if (copy && client.features.resume) {
+      try {
+        session = await client.resumeSession(sessionId, workspace, copy, options);
+        this.log(`resumed session ${session.id} (nothing replayed)`);
+      } catch (error) {
+        if (error instanceof TurnRunningError) throw error;
+        this.log(`could not resume the session (${message(error)}); reopening it instead`);
+      }
+    }
+    if (!session) {
+      session = await client.loadSession(sessionId, workspace, options);
+      this.log(`reopened session ${session.id}`);
+    }
+    if (interrupted && client.features.resume) {
+      session.markInterrupted(startedAt);
+      this.log("agent86 stopped partway through a turn; the steps it finished are kept");
+    }
+    return session;
+  }
+
   private onClose(socket: WebSocket, event: CloseEvent): void {
     if (this.socket !== socket || this.closedByUs) return;
     this.socket = undefined;
     this.log(`connection closed (${event.code}${event.reason ? `: ${event.reason}` : ""})`);
+    if (event.code === AGENT_EXITED) this.agentExited = true;
     if (event.code === REPLACED) {
+      this.copyStale = true;
       this.update({ phase: "taken", error: "This thread was opened in another tab or window." });
       return;
     }

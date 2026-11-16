@@ -16,6 +16,7 @@ export {
   TurnRunningError,
   type Agent86ClientOptions,
   type Agent86Features,
+  type ReopenOptions,
   type Clock,
   type FileLink,
   type LogState,

@@ -8,6 +8,7 @@ export const ALLOWED_CLIENT_METHODS: ReadonlySet<string> = new Set([
   "initialize",
   "session/new",
   "session/load",
+  "session/resume",
   "session/list",
   "session/prompt",
   "session/cancel",
@@ -123,8 +124,10 @@ export function filterClientMessage(raw: string, ctx: PolicyContext): PolicyResu
       };
       return { action: "forward", message: { ...message, params: next } };
     }
+    // session/resume (agent86 1.0.21) reopens without a replay; same params, so the same rules.
     case "session/new":
-    case "session/load": {
+    case "session/load":
+    case "session/resume": {
       if (!cwdAllowed(params?.cwd, ctx)) {
         return reject(id, INVALID_PARAMS, "cwd must be the workspace this thread was opened in");
       }

@@ -38,6 +38,8 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 | The file a call works on | ACP `locations` (agent86 1.0.19) | The file and first changed line on the card, relative to the workspace, with copy | ✅ (no file view to open it in) | M8 |
 | Command preview for `run_command` / `python_exec` | permission request content | Highlighted command block | ✅ | M3 |
 | Warning for writes into agent86's own config or skills | permission request content | Shown prominently above the detail | ✅ | M3 |
+| Which sub-agent asks (the terminal's sub-agent approval panel) | `_meta["com.maetek.agent86/subagent"]` on the request (agent86 1.0.21, state extension) | The sub-agent's name with a link to its delegation card, its git worktree and branch, and its spend beside the turn's and the cap, in the approval | ✅ (with 1.0.21) | M9 |
+| Parallel sub-agents' approvals, one at a time in arrival order | agent86's `questions` events (1.0.21, state extension) | An approval inbox beside the thread: the question asked and those waiting, with a count and card links; answered one at a time on the card, emptied on cancel | ✅ (with 1.0.21) | M9 |
 | Approval mode `ask`/`auto`/`deny`, Shift+Tab, `/mode` | `session/set_config_option`, `config_option_update` | A mode selector in the thread header | ✅ | M4 |
 | "Always allow" | not offered by agent86 | — | ⛔ | — |
 
@@ -61,6 +63,8 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 | `/clear` | — | "New thread" in the same workspace | 🟡 New session, not cleared in place | M4 |
 | Several conversations at once | one turn per connection | One agent86 process per thread, shown in tabs (a dot shows working or waiting for approval) | ✅ | M4 |
 | Surviving a reload | `session/load` | Open threads are remembered in the browser; a reload reattaches to the same agent86 and reopens each session, waiting for a running turn to end first | ✅ | M4 |
+| Reconnecting without a replay | `session/resume` (agent86 1.0.21, `sessionCapabilities.resume`) | When the tab still has the whole conversation (a dropped connection while idle, a new agent86 after trust or a crash), the session is resumed and nothing is replayed; `session/load` otherwise | ✅ (with 1.0.21) | M9 |
+| A session cut off mid-turn (`agent86 --resume` goes on from the finished steps) | saved after every step (agent86 1.0.21) | After agent86 exits mid-turn, the thread reconnects with the finished steps, marks the turn interrupted, and offers Continue (a short message; continuing the turn itself is planned for agent86 1.0.24) | 🟡 (Continue sends a message) | M9 |
 
 ## Information commands
 

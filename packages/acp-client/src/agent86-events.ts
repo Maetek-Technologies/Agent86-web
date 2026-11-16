@@ -5,6 +5,9 @@
 // (`clientCapabilities._meta["com.maetek.agent86/state"]: true`) gets one notification per event:
 // `_com.maetek.agent86/session/event` with `{ sessionId, event: { kind, ts, ... } }`.
 //
+// agent86 1.0.21 adds the `questions` event (the approval inbox) and, on a sub-agent's permission
+// request, `_meta["com.maetek.agent86/subagent"]` (who asks), both only for a client that asked.
+//
 // Reading is lenient on purpose: unknown kinds, unknown fields, and fields of the wrong type are
 // skipped, never an error. Older agent86 never sends any of this.
 
@@ -72,7 +75,63 @@ export interface RouteEvent {
   model: string;
 }
 
-export type Agent86Event = ModelCallEvent | SubagentEvent | GuardrailEvent | RouteEvent;
+/**
+ * A question agent86 asks or will ask (agent86 1.0.21). Over ACP only two kinds occur: `approval`
+ * (a tool call; its permission request names `call`) and `specialty` (the one-time approval of a
+ * project specialist, `subject`, whose request offers one `allow_always` option).
+ */
+export interface Question {
+  kind: "approval" | "specialty";
+  /** The tool asking about; `delegate` for a specialty. */
+  tool?: string;
+  /** The tool call id its permission request will name. */
+  call?: string;
+  /** The sub-agent asking; absent when the main agent asks. */
+  agent?: string;
+  /** The tool call id of that sub-agent's delegation card. */
+  card?: string;
+  /** For a specialty: the project specialist to be approved. */
+  subject?: string;
+}
+
+/**
+ * The questions queue changed (agent86 1.0.21): the one being asked and those behind it, in the
+ * order they will be asked. agent86 asks one at a time, first in, first out.
+ */
+export interface QuestionsEvent {
+  kind: "questions";
+  ts?: number;
+  asking: Question | null;
+  waiting: Question[];
+}
+
+export type Agent86Event =
+  ModelCallEvent | SubagentEvent | GuardrailEvent | RouteEvent | QuestionsEvent;
+
+/** The key in a permission request's `_meta` that says which sub-agent asks (agent86 1.0.21). */
+export const SUBAGENT_META = "com.maetek.agent86/subagent";
+
+/** Who asks for a permission, when a sub-agent does (agent86 1.0.21, with the state extension). */
+export interface SubagentAsker {
+  /** The tool call id of the delegation's card. */
+  card: string;
+  /** The per-spawn number, as `run` in the state events. */
+  run?: number;
+  /** The specialist or role name. */
+  agent?: string;
+  /** 1 when the main agent delegated it; deeper when nested. */
+  depth?: number;
+  /** The git worktree it works in, if it runs in one. */
+  worktree?: { path: string; branch?: string };
+  /** Its model calls so far. */
+  steps?: number;
+  /** Its spend so far in US dollars, including anything it delegated. */
+  costUsd?: number;
+  /** The whole turn's spend so far. */
+  turnCostUsd?: number;
+  /** `[limits] max_cost_usd`; null when off. */
+  costCapUsd: number | null;
+}
 
 type Json = Record<string, unknown>;
 
@@ -171,9 +230,69 @@ export function parseEvent(raw: unknown): Agent86Event | undefined {
       if (!model) return undefined;
       return defined<RouteEvent>({ kind: "route", ts, model });
     }
+    case "questions": {
+      // `asking` must be there (a question or null); a question of a kind this client does not
+      // know is left out, as the extension asks.
+      if (!("asking" in raw)) return undefined;
+      const waiting = Array.isArray(raw.waiting) ? raw.waiting : [];
+      return defined<QuestionsEvent>({
+        kind: "questions",
+        ts,
+        asking: parseQuestion(raw.asking) ?? null,
+        waiting: waiting.map(parseQuestion).filter((q): q is Question => !!q),
+      });
+    }
     default:
       return undefined;
   }
+}
+
+/** One question, or undefined for an unknown kind. Omitted fields stay absent. */
+export function parseQuestion(raw: unknown): Question | undefined {
+  if (!isObject(raw) || (raw.kind !== "approval" && raw.kind !== "specialty")) return undefined;
+  return defined<Question>({
+    kind: raw.kind,
+    tool: str(raw.tool),
+    call: str(raw.call),
+    agent: str(raw.agent),
+    card: str(raw.card),
+    subject: str(raw.subject),
+  });
+}
+
+/**
+ * Who asks, from a permission request's `_meta`, or undefined when the main agent asks (agent86
+ * sends nothing then) or the entry is unusable.
+ */
+export function parseAsker(meta: unknown): SubagentAsker | undefined {
+  if (!isObject(meta)) return undefined;
+  const raw = meta[SUBAGENT_META];
+  if (!isObject(raw)) return undefined;
+  const card = str(raw.card);
+  if (!card) return undefined;
+  const tree = isObject(raw.worktree) ? raw.worktree : undefined;
+  const path = tree ? str(tree.path) : undefined;
+  return defined<SubagentAsker>({
+    card,
+    run: num(raw.run),
+    agent: str(raw.agent),
+    depth: num(raw.depth),
+    worktree: path ? defined({ path, branch: str(tree!.branch) }) : undefined,
+    steps: num(raw.steps),
+    costUsd: num(raw.cost_usd),
+    turnCostUsd: num(raw.turn_cost_usd),
+    costCapUsd: num(raw.cost_cap_usd) ?? null,
+  });
+}
+
+/**
+ * Whether `initialize`'s result offers `session/resume` (`sessionCapabilities.resume`, agent86
+ * 1.0.21). The spec forbids calling it otherwise.
+ */
+export function advertisesResume(agentCapabilities: unknown): boolean {
+  if (!isObject(agentCapabilities) || !isObject(agentCapabilities.sessionCapabilities))
+    return false;
+  return isObject(agentCapabilities.sessionCapabilities.resume);
 }
 
 /** The notification's params, or undefined when they are not an event for a session. */

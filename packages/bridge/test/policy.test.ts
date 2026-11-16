@@ -59,13 +59,32 @@ describe("filterClientMessage", () => {
     },
   );
 
-  it("applies the same cwd rule to session/load and a filtered session/list", () => {
+  it("applies the same cwd rule to session/load, session/resume, and a filtered session/list", () => {
     expect(
       request("session/load", { sessionId: "s", cwd: "/home/me/code/other", mcpServers: [] })
         .action,
     ).toBe("reject");
+    expect(
+      request("session/resume", { sessionId: "s", cwd: "/home/me/code/other", mcpServers: [] })
+        .action,
+    ).toBe("reject");
     expect(request("session/list", { cwd: "/home/me/code/other" }).action).toBe("reject");
     expect(request("session/list", {}).action).toBe("forward");
+  });
+
+  it("lets session/resume through (agent86 1.0.21) with cwd pinned and MCP servers stripped", () => {
+    const result = request("session/resume", {
+      sessionId: "s",
+      cwd: "/home/me/link-to-app",
+      mcpServers: [{ name: "evil", command: "/bin/sh", args: [], env: [] }],
+    });
+    expect(result).toMatchObject({
+      action: "forward",
+      message: {
+        method: "session/resume",
+        params: { sessionId: "s", cwd: "/home/me/code/app", mcpServers: [] },
+      },
+    });
   });
 
   it.each([

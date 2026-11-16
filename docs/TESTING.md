@@ -24,6 +24,8 @@ The aim is to test the protocol, the bridge's security, and the UI without needi
 
 As built in M2, both pick a script from keywords in the prompt, and they share the scripts, so a test reads the same against either: `fail` gives an HTTP 400 model error, `slow` gives a long reply for cancel tests, `markdown` gives a reply exercising GFM and the XSS cases, and anything else gives a short reasoning trace and `Hello from the mock model. You said: <text>`. The mock agent also answers `/cost` without a model, as agent86 does.
 
+As built in M9, the scripts add `parallel writers` (two `writer` delegations in one step, each asking to write a file), `crash` (a read step, then agent86 exits partway through the next; the scripted model streams slowly so a test can kill the real agent86), `exit after replying` (the mock exits while idle), and `Continue where you left off` (says whether the earlier tool result is in the history). With `MOCK_AGENT86_VERSION=1.0.21` the mock agent adds `session/resume`, the questions queue and who asks (to a state client), a turn saved after each step, and tool call ids unique across processes.
+
 As built in M3, both also run tool calls: `typo` (edit_file on README.md), `write` (write_file), `command` (run_command), `python` (python_exec), `read` (read_file, no approval), and `skill` (write_file into `.agent86/skills`, which agent86 warns about). The mock agent sends permission requests in agent86's exact text formats and really edits the file once allowed. `e2e/approvals.spec.ts` runs the approval flows against both.
 
 If the scripts outgrow keywords, the plan is scenario files:
@@ -74,6 +76,7 @@ Status as of M4: ✅ covered in `packages/web/e2e/` (against the mock agent and,
 14. ✅ Untrusted project → banner → review → trust → process restarts with `--trust-project` → the project's MCP server's tool appears. Edit the file → restricted again. Revoke.
 15. ✅ `/` command menu, `@` file mentions sent as links, logs drawer, workspace picker
 16. ✅ Reload keeps the open threads
+17. ✅ agent86 1.0.21 (`e2e/acp-1.0.21.spec.ts`, mock as 1.0.21 and 1.0.20, real agent86 1.0.21): two parallel `writer` sub-agents queue their approvals → the inbox lists both, the approval says who asks, then the next follows; Stop empties the inbox; agent86 exits mid-turn → resumed (no replay), interrupted, Continue; an idle exit → resumed; a reload → loaded; against 1.0.20, none of it. The real-agent cases kill agent86 by the pid in the bridge's log.
 
 The test MCP server is `packages/mock-agent/src/mock-mcp.js` (one tool, `mock_echo`; agent86 lists it as `mcp__demo__mock_echo`).
 

@@ -5,9 +5,9 @@ A browser interface for [agent86](https://github.com/Maetek-Technologies/agent86
 agent86-web runs a small server on your machine (loopback only) and opens a page in your browser. Each thread you open there is your own `agent86` running in a project folder, with your config, keys, sandbox, memory, and sessions. The browser gives you:
 
 - **Conversations** with streamed Markdown and the model's reasoning, which you can fold away.
-- **Approvals**, with the diff or command in view.
+- **Approvals**, with the diff or command in view. With agent86 1.0.21, a sub-agent's approval says which sub-agent asks, where it works, and what it has spent, and an inbox lists the approvals waiting behind it.
 - **Saved sessions**, including ones started at a terminal (and `agent86 --resume <id>` continues a browser session at a terminal).
-- **Several threads at once.**
+- **Several threads at once**, which reconnect by themselves. With agent86 1.0.21, a thread survives agent86 stopping partway through a turn: it comes back with the steps agent86 finished and offers to continue.
 - **Model and approval-mode pickers**, `/` commands, and `@` file mentions.
 - **Thread names** you choose (saved in agent86 with 1.0.17 or newer), a resizable sessions panel, and a **Quit** button.
 

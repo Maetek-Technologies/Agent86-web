@@ -156,6 +156,8 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
         realpath,
         log: (line) => log(`thread ${thread}: ${line}`),
       });
+      // The process id, for a look with ps or Task Manager (and the tests that stop one mid-turn).
+      if (agent.child.pid !== undefined) log(`thread ${thread}: agent86 pid ${agent.child.pid}`);
       void agent.exited.then((code) =>
         log(`thread ${thread}: agent86 exited (status ${code ?? "unknown"})`),
       );

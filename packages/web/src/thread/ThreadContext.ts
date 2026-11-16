@@ -11,6 +11,10 @@ export interface ThreadContextValue {
   cwd?: string;
   /** Sub-agent runs by delegation card, when agent86 sends its state events. */
   subagents?: Record<string, SubagentInfo>;
+  /** Send a prompt, as the input box does (the "continue" after an interrupted turn uses it). */
+  send?: (text: string) => void;
+  /** A turn is running, or the connection is closed: nothing can be sent now. */
+  busy?: boolean;
 }
 
 export const ThreadContext = createContext<ThreadContextValue>({
