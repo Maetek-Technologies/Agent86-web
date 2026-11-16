@@ -118,7 +118,7 @@ Every route checks the cookie, the `Host` header, and (for the WebSocket) the `O
 agent86's ACP server runs **one turn at a time per connection**: a second `session/prompt` while one runs is refused. To let threads run in parallel, the bridge gives **each thread its own `agent86 acp` process**:
 
 - A thread is a browser-side ID mapped to one process, which holds one ACP session.
-- The WebSocket for a thread can drop and reattach (a reload, a sleeping laptop) while the process keeps running. The page then reopens its session with `session/load`, which replays the history (see *As built* below for what happens to messages in flight).
+- The WebSocket for a thread can drop and reattach (a reload, a sleeping laptop) while the process keeps running. The page then reopens its session with `session/load`, which replays the history (see *As built* below for what happens to messages in flight). Since 0.4.1, when agent86 offers `session/resume` (1.0.21) and the page still has the whole conversation, it resumes instead, and nothing is replayed (see *Resume* below).
 - An idle process is stopped after `--idle-timeout`. Reopening the thread starts a new process and calls `session/load` with the saved session ID, which agent86 replays from its database.
 - `--max-agents` caps the live processes. When the cap is reached, the least recently used idle process is stopped first. If all are busy, the new thread is refused with a clear message.
 - The process is started in the thread's workspace directory, because agent86 reads `./.agent86/config.toml` from where it starts.
@@ -133,6 +133,7 @@ Read-only screens (the session list, the workspace browser) use a short-lived **
 - **Nobody to ask.** A request from agent86 that no socket can answer (a permission request while detached, or one left unanswered when a socket closes) is declined by the bridge (`cancelled`), so a turn never waits on a page that has gone.
 - **`initialize` on reattach.** agent86 refuses every request while a turn runs, including `initialize`. The bridge keeps agent86's first answer and gives it to a reattached page itself. The page's `session/load` is then refused until the turn ends, and the client retries it every second (`loadSession({ waitForTurn: true })`), showing "finishing a turn…".
 - **Replacing a socket.** A second socket for the same thread replaces the first, which is closed with code 4000; its page says the thread is open elsewhere and offers to take it back.
+- **Resume (0.4.1).** The page decides, not the bridge. It resumes when agent86 advertises `sessionCapabilities.resume` and its copy of the conversation is complete: no turn was running when the connection closed, or agent86 itself exited (close code 1011, so nothing went on without the page). After another tab took the thread over (4000), after a reload (no copy), or when a turn ran on without the page, it loads. agent86 1.0.21 saves a session after every step, so when agent86 exits mid-turn the page reconnects (the bridge starts a new process on attach, as before), resumes, and marks that turn interrupted with a Continue button. The bridge logs each process's pid.
 - **Restart.** `?fresh=1` on the WebSocket URL stops the thread's process and starts a new one (after trusting the project). A stopped process's socket is closed with code 4001, and the page reconnects.
 - **Limits.** `--idle-timeout` (default 15m) stops a process with no socket and no turn; `--max-agents` (default 8) stops the least recently used such process to make room, and otherwise refuses the socket with code 1013 and a message.
 - **Notes.** Each stderr line goes to the page as a `_agent86web/stderr` notification (an ACP extension method), and the buffered lines are replayed to a reattached page. The client reads agent86's "ignored N settings that need trust" note from them to show the trust banner.
@@ -146,8 +147,8 @@ The bridge inspects messages from the client to the agent for a short list of fi
 
 | Message | Check |
 |---|---|
-| `session/new`, `session/load` `cwd` | Must resolve (with symlinks followed) inside a `--root`, and must match the directory the process was started in |
-| `session/new` `mcpServers` | Stripped in phase 1. A browser-supplied MCP server would be a command run as the user, so the browser does not get to choose one. agent86's configured `[mcp.servers.*]` still apply. |
+| `session/new`, `session/load`, `session/resume` `cwd` | Must resolve (with symlinks followed) inside a `--root`, and must match the directory the process was started in |
+| `session/new`, `session/load`, `session/resume` `mcpServers` | Stripped in phase 1. A browser-supplied MCP server would be a command run as the user, so the browser does not get to choose one. agent86's configured `[mcp.servers.*]` still apply. |
 | `initialize` `clientCapabilities.fs` / `terminal` | Forced off. The browser does not own the files, so agent86's file tools use the disk. Two opt-ins pass (rebuilt, not copied): `session.compaction` and agent86's state events (`_meta["com.maetek.agent86/state"]`); anything else is dropped. A thread's agent86 keeps the capabilities of its first `initialize` for its life. |
 | Frames that are not JSON, are larger than the limit, or have an unknown method | Dropped, with a JSON-RPC error |
 
@@ -157,7 +158,7 @@ The bridge inspects messages from the client to the agent for a short list of fi
 
 - **Transport interface:** `send(msg)`, `onMessage`, `onClose`, `close()`. `WebSocketTransport` is used in the browser. The tests use an in-memory pair, and phase 2 can add an authenticated gateway transport.
 - **JSON-RPC core:** correlates request IDs, routes notifications, handles timeouts, and maps errors.
-- **Client:** typed methods for `initialize`, `session/new`, `session/load`, `session/list`, `session/prompt`, `session/cancel`, and `session/set_config_option`. Handlers are registered for the agent's requests: `session/request_permission` (and `fs/*`, answered "not supported" because it is never advertised).
+- **Client:** typed methods for `initialize`, `session/new`, `session/load`, `session/resume` (0.4.1, only when advertised), `session/list`, `session/prompt`, `session/cancel`, and `session/set_config_option`. Handlers are registered for the agent's requests: `session/request_permission` (and `fs/*`, answered "not supported" because it is never advertised).
 - **Session model:** folds `session/update` notifications into a plain, serializable state: messages, thought blocks, tool calls by ID with status, available commands, and config options. React subscribes to it, and unit tests assert on it without a DOM.
 - **Types:** generated from ACP's `schema/v1/schema.json` and checked in, with the schema version recorded. Whether to use the ACP project's official TypeScript library or a hand-written layer is decided in M1 ([OPEN_QUESTIONS.md](OPEN_QUESTIONS.md#q6-acp-library)).
 

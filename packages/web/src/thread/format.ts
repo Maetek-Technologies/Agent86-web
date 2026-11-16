@@ -1,7 +1,11 @@
 // Numbers as the thread shows them: costs, token counts, and the context window.
 
-/** A cost in a currency, with enough digits for small amounts ($0.0042, not $0.00). */
+/**
+ * A cost in a currency, with enough digits for small amounts ($0.0042, not $0.00). An amount too
+ * small even for that reads "<$0.0001", never as free.
+ */
 export function formatCost(amount: number, currency = "USD"): string {
+  if (amount > 0 && amount < 0.00005) return `<${formatCost(0.0001, currency)}`;
   const digits = amount !== 0 && Math.abs(amount) < 0.01 ? 4 : 2;
   try {
     return new Intl.NumberFormat("en-US", {

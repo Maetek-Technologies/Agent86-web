@@ -1,8 +1,62 @@
-import type { PendingPermission } from "@agent86-web/acp-client";
+import type { PendingPermission, SubagentAsker } from "@agent86-web/acp-client";
 import { useEffect, useRef, type KeyboardEvent } from "react";
+import { formatCost, formatUsd } from "../thread/format.ts";
 import { parseApprovalText } from "./approval.ts";
+import { showCard } from "./cardLink.ts";
 import { DetailView } from "./DetailView.tsx";
 import { FileDiffs } from "./DiffView.tsx";
+
+/** agent86's own line on a sub-agent's request, which the asker block below says better. */
+const ASKED_BY = /^Asked by the '[^']*' sub-agent\.?$/;
+
+/**
+ * Which sub-agent asks (agent86 1.0.21): its name and a link to its delegation card, the worktree
+ * it works in, and its spend beside the turn's and the cap. All amounts are US dollars.
+ */
+function Asker({ asker }: { asker: SubagentAsker }) {
+  const depth = asker.depth ?? 1;
+  return (
+    <div
+      data-testid="asker"
+      className="space-y-1 rounded border border-border bg-panel-2 p-2 text-xs"
+      aria-label="Who asks"
+    >
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span>
+          Asked by the sub-agent{" "}
+          <span className="font-mono font-semibold" data-testid="asker-name">
+            {asker.agent ?? "(unnamed)"}
+          </span>
+          {depth > 1 && <span className="text-muted"> (nested {depth} deep)</span>}
+        </span>
+        <button
+          type="button"
+          onClick={() => showCard(asker.card)}
+          className="rounded px-1 text-accent hover:underline"
+        >
+          show its card
+        </button>
+      </div>
+      {asker.worktree && (
+        <div data-testid="asker-worktree" title={asker.worktree.path}>
+          Works in an isolated worktree
+          {asker.worktree.branch && (
+            <>
+              {" "}
+              on <span className="font-mono">{asker.worktree.branch}</span>
+            </>
+          )}
+        </div>
+      )}
+      <div className="text-muted" data-testid="asker-spend">
+        its spend {formatUsd(asker.costUsd)}
+        {asker.steps !== undefined && ` (${asker.steps} model call${asker.steps === 1 ? "" : "s"})`}
+        {" · "}turn {formatUsd(asker.turnCostUsd)}
+        {asker.costCapUsd !== null && ` of a ${formatCost(asker.costCapUsd)} cap`}
+      </div>
+    </div>
+  );
+}
 
 /**
  * The approval for one tool call (docs/UI_DESIGN.md §4). It is styled unlike anything the model
@@ -23,7 +77,12 @@ export function PermissionPanel({
   onReject: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { warning, detail } = parseApprovalText(request.text, name);
+  const parsed = parseApprovalText(request.text, name);
+  const { detail } = parsed;
+  const warning =
+    request.asker && parsed.warning && ASKED_BY.test(parsed.warning.trim())
+      ? undefined
+      : parsed.warning;
 
   useEffect(() => {
     const active = document.activeElement;
@@ -63,6 +122,7 @@ export function PermissionPanel({
           {summary && <span className="font-mono font-normal text-text"> {summary}</span>}
         </span>
       </div>
+      {request.asker && <Asker asker={request.asker} />}
       {warning && (
         <div role="note" className="rounded border border-warn bg-warn/10 p-2 text-sm">
           <strong>Warning:</strong> {warning}

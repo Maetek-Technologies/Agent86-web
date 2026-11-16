@@ -11,7 +11,7 @@ import type {
   ToolCallStatus,
   ToolKind,
 } from "@agentclientprotocol/sdk";
-import type { Agent86Event, ModelCall } from "./agent86-events.ts";
+import type { Agent86Event, ModelCall, Question, SubagentAsker } from "./agent86-events.ts";
 
 /**
  * A file change as agent86 1.0.19 sends it (ACP `diff` content): the whole file before (null for a
@@ -71,6 +71,8 @@ export interface ToolEntry {
   previewDiffs?: FileDiff[];
   /** How the approval for this call was answered, if one was asked. */
   decision?: PermissionDecision;
+  /** The call was still pending or running when agent86 stopped partway through the turn. */
+  interrupted?: boolean;
 }
 
 /** How a permission request was answered. Anything but "allowed" declines the call. */
@@ -91,6 +93,8 @@ export interface PendingPermission {
   locations?: FileLocation[];
   /** The choices, in the agent's order. */
   options: PermissionOption[];
+  /** The sub-agent asking (agent86 1.0.21, with its state events); absent when the main agent asks. */
+  asker?: SubagentAsker;
 }
 
 export interface NoticeEntry {
@@ -105,7 +109,8 @@ export interface NoticeEntry {
 export interface TurnEndEntry {
   kind: "turn-end";
   id: number;
-  stopReason: StopReason | "error";
+  /** `interrupted`: agent86 stopped (its process ended) partway through; finished steps are kept. */
+  stopReason: StopReason | "error" | "interrupted";
   durationMs: number;
   /** What the turn's model calls cost, when agent86 sent its state events. */
   spend?: TurnSpend;
@@ -178,6 +183,13 @@ export interface SubagentInfo {
   priced: boolean;
 }
 
+/** The questions agent86 is asking and will ask, from its `questions` events (agent86 1.0.21). */
+export interface QuestionQueue {
+  asking: Question | null;
+  /** In the order they will be asked. */
+  waiting: Question[];
+}
+
 /** An entry before it has an id. `Omit` over a union would merge the members, so distribute it. */
 export type NewEntry = Entry extends infer E ? (E extends Entry ? Omit<E, "id"> : never) : never;
 
@@ -206,8 +218,12 @@ export interface SessionState {
   subagents: Record<string, SubagentInfo>;
   /** The model triage routing picked for the latest turn. */
   routedModel?: string;
+  /** The questions queue while a turn runs, when agent86 sends it; absent when empty. */
+  questions?: QuestionQueue;
   /** Why the connection ended, once it has. */
   closed?: string;
+  /** Set when the connection ended while a turn was running: when that turn started. */
+  closedDuringTurn?: { startedAt?: number };
   nextId: number;
 }
 
@@ -319,13 +335,21 @@ function endThought(state: SessionState, now: number): SessionState {
 /** The user sent a prompt: show it and start the turn. */
 export function startTurn(state: SessionState, text: string, now: number): SessionState {
   const next = withEntry(state, { kind: "user", text });
-  const { turnSpend: _spent, routedModel: _routed, ...rest } = next;
+  const { turnSpend: _spent, routedModel: _routed, questions: _questions, ...rest } = next;
   return { ...rest, turn: { running: true, startedAt: now, cancelRequested: false } };
 }
 
+/** Leave out the questions queue. */
+function withoutQuestions(state: SessionState): SessionState {
+  if (!state.questions) return state;
+  const { questions: _questions, ...rest } = state;
+  return rest;
+}
+
+/** Cancelling declines every waiting question without asking it, so the inbox empties at once. */
 export function requestCancel(state: SessionState): SessionState {
   if (!state.turn.running || state.turn.cancelRequested) return state;
-  return { ...state, turn: { ...state.turn, cancelRequested: true } };
+  return { ...withoutQuestions(state), turn: { ...state.turn, cancelRequested: true } };
 }
 
 const STOP_NOTICES: Partial<Record<StopReason, { level: NoticeEntry["level"]; text: string }>> = {
@@ -362,7 +386,7 @@ export function endTurn(state: SessionState, stopReason: StopReason, now: number
     durationMs: now - (state.turn.startedAt ?? now),
     ...(state.turnSpend ? { spend: state.turnSpend } : {}),
   });
-  return { ...next, turn: { running: false, cancelRequested: false } };
+  return { ...withoutQuestions(next), turn: { running: false, cancelRequested: false } };
 }
 
 /** A note from the client itself (not from agent86), such as a setting it could not restore. */
@@ -390,14 +414,65 @@ export function failTurn(state: SessionState, message: string, now: number): Ses
     durationMs: now - (state.turn.startedAt ?? now),
     ...(state.turnSpend ? { spend: state.turnSpend } : {}),
   });
-  return { ...next, turn: { running: false, cancelRequested: false } };
+  return { ...withoutQuestions(next), turn: { running: false, cancelRequested: false } };
 }
 
 export function markClosed(state: SessionState, reason: string, now: number): SessionState {
   if (state.closed) return state;
-  let next: SessionState = { ...endThought(state, now), closed: reason };
-  if (state.turn.running) next = { ...next, turn: { running: false, cancelRequested: false } };
+  let next: SessionState = { ...withoutQuestions(endThought(state, now)), closed: reason };
+  if (state.turn.running) {
+    next = {
+      ...next,
+      turn: { running: false, cancelRequested: false },
+      closedDuringTurn:
+        state.turn.startedAt !== undefined ? { startedAt: state.turn.startedAt } : {},
+    };
+  }
   return next;
+}
+
+/**
+ * A session reopened with `session/resume` (agent86 1.0.21), which replays nothing: carry on from
+ * the transcript the client already has. agent86 keeps the old tool call ids reserved, so they
+ * never clash with new calls. What belonged to the old connection (open requests, the running
+ * turn, the closed state, the queue) is dropped.
+ */
+export function continueState(previous: SessionState): SessionState {
+  const { closed: _closed, closedDuringTurn: _cut, questions: _questions, ...rest } = previous;
+  return { ...rest, permissions: [], turn: { running: false, cancelRequested: false } };
+}
+
+/**
+ * agent86 stopped partway through a turn (its process ended). Since 1.0.21 the steps it finished
+ * are saved. Calls of that turn still pending or running are marked interrupted, and the turn ends
+ * as `interrupted`, so the thread can offer to continue.
+ */
+export function interruptTurn(
+  state: SessionState,
+  now: number,
+  startedAt: number | undefined,
+): SessionState {
+  let lastUser = -1;
+  for (let i = state.entries.length - 1; i >= 0; i--) {
+    if (state.entries[i]!.kind === "user") {
+      lastUser = i;
+      break;
+    }
+  }
+  const entries = state.entries.map((entry, i) =>
+    i > lastUser &&
+    entry.kind === "tool" &&
+    (entry.status === "pending" || entry.status === "in_progress")
+      ? { ...entry, interrupted: true }
+      : entry,
+  );
+  const next = withEntry(endThought({ ...state, entries }, now), {
+    kind: "turn-end",
+    stopReason: "interrupted",
+    durationMs: startedAt !== undefined ? Math.max(0, now - startedAt) : 0,
+    ...(state.turnSpend ? { spend: state.turnSpend } : {}),
+  });
+  return { ...withoutQuestions(next), turn: { running: false, cancelRequested: false } };
 }
 
 function updateTool(
@@ -652,9 +727,50 @@ export function applyEvent(state: SessionState, event: Agent86Event, now: number
       });
     case "route":
       return { ...state, routedModel: event.model };
+    case "questions": {
+      // Only while a turn runs; once a cancel is asked for, agent86 declines whatever waits.
+      if (!state.turn.running || state.turn.cancelRequested) return withoutQuestions(state);
+      if (!event.asking && event.waiting.length === 0) return withoutQuestions(state);
+      return { ...state, questions: { asking: event.asking, waiting: event.waiting } };
+    }
     default:
       return state;
   }
+}
+
+/** One line of the approval inbox. */
+export interface InboxItem {
+  question: Question;
+  /** `asking`: the question agent86 is asking now; `waiting`: behind it, in order. */
+  position: "asking" | "waiting";
+  /** The open permission request for it, once it has arrived (it may come after the event). */
+  request?: PendingPermission;
+  /** Whether the call's card is in the thread yet (agent86 announces it just before asking). */
+  hasCard: boolean;
+}
+
+/**
+ * The approval inbox: the question being asked, then those waiting, keyed by `call` and
+ * reconciled with the permission requests and cards as they arrive, in whatever order. A question
+ * already answered here (its card has a decision) is left out until agent86's next event.
+ */
+export function inboxItems(state: SessionState): InboxItem[] {
+  const queue = state.questions;
+  if (!queue || state.turn.cancelRequested) return [];
+  const tools = new Map<string, ToolEntry>();
+  for (const entry of state.entries) if (entry.kind === "tool") tools.set(entry.toolCallId, entry);
+  const items: InboxItem[] = [];
+  const add = (question: Question, position: InboxItem["position"]) => {
+    const tool = question.call ? tools.get(question.call) : undefined;
+    const request = question.call
+      ? state.permissions.find((p) => p.toolCallId === question.call)
+      : undefined;
+    if (tool?.decision && !request) return;
+    items.push({ question, position, ...(request ? { request } : {}), hasCard: !!tool });
+  };
+  if (queue.asking) add(queue.asking, "asking");
+  for (const question of queue.waiting) add(question, "waiting");
+  return items;
 }
 
 /** What the agent is doing now, for the phase line (docs/UI_DESIGN.md §3.3). */

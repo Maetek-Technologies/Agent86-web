@@ -13,6 +13,14 @@
 //   contains "search"    calls search_files for "quick" (no approval needed)
 //   contains "find"      calls find_files for "*.md" (no approval needed)
 //   contains "skill"     calls write_file into .agent86/skills (agent86 warns about it)
+//   "parallel writers"   delegates to the `writer` specialist twice in one step; each writer's
+//                        task ("writer-task-<name>") calls write_file on <name>.txt, so two
+//                        approvals queue up (agent86 1.0.21's approval inbox)
+//   contains "crash"     calls read_file, then streams its answer slowly, so a test can stop
+//                        agent86 partway through the turn, after one finished step
+//   "Continue where you left off"  says what it sees of the earlier turn (its first prompt, and
+//                        whether a tool result is in the history), so a test can check that a
+//                        resumed session kept its finished steps
 //   anything else        a short reasoning trace, then "Hello from the mock model. You said: <text>"
 //
 //   mock-openai [--port <n>]    prints "listening on <port>" once ready
@@ -48,8 +56,31 @@ const MARKDOWN = [
   "<script>alert('xss')</script> raw HTML stays text.",
 ].join("\n");
 
+/** @typedef {{ name: string; arguments: Record<string, unknown> }} ToolCall */
+
+/** The tool calls a prompt asks for, all in one step; empty for none. */
+/** @param {string} prompt @returns {ToolCall[]} */
+export function toolsFor(prompt) {
+  const writer = /\bwriter-task-(\w+)/.exec(prompt);
+  if (writer)
+    return [
+      {
+        name: "write_file",
+        arguments: { path: `${writer[1]}.txt`, content: `written by ${writer[1]}\n` },
+      },
+    ];
+  if (/\bparallel writers\b/i.test(prompt))
+    return ["one", "two"].map((name) => ({
+      name: "delegate",
+      arguments: { agent: "writer", task: `writer-task-${name}: write the file` },
+    }));
+  if (/\bcrash\b/i.test(prompt)) return [{ name: "read_file", arguments: { path: "README.md" } }];
+  const tool = toolFor(prompt);
+  return tool ? [tool] : [];
+}
+
 /** The tool call a prompt asks for, if any. */
-/** @param {string} prompt @returns {{ name: string; arguments: Record<string, unknown> } | undefined} */
+/** @param {string} prompt @returns {ToolCall | undefined} */
 export function toolFor(prompt) {
   if (/\btypo\b/i.test(prompt))
     return {
@@ -157,17 +188,36 @@ export function createMockOpenAI() {
 
     // After a tool ran, agent86 sends its result back: answer with it, so a test can see it.
     const last = messages.at(-1);
-    const tool = last?.role === "user" ? toolFor(prompt) : undefined;
+    const tools = last?.role === "user" ? toolsFor(prompt) : [];
+    const first = textOf(users[0]?.content).trim();
     const { reasoning, content, delayMs } =
-      last?.role === "tool"
-        ? {
-            reasoning: ["The", " tool", " finished."],
-            content: [`Tool result: ${textOf(last.content).slice(0, 300)}`],
-            delayMs: 5,
-          }
-        : tool
-          ? { reasoning: ["I", " will", " use", ` ${tool.name}.`], content: [], delayMs: 5 }
-          : script(prompt, String(request.model ?? "test-model"));
+      last?.role === "tool" && /\bcrash\b/i.test(prompt)
+        ? // Slow, so a test can stop agent86 partway through this second step.
+          script("slow")
+        : last?.role === "tool"
+          ? {
+              reasoning: ["The", " tool", " finished."],
+              content: [`Tool result: ${textOf(last.content).slice(0, 300)}`],
+              delayMs: 5,
+            }
+          : tools.length
+            ? {
+                reasoning: ["I", " will", " use", ` ${tools.map((t) => t.name).join(", ")}.`],
+                content: [],
+                delayMs: 5,
+              }
+            : /^Continue where you left off/i.test(prompt)
+              ? {
+                  reasoning: ["Picking", " up."],
+                  content: [
+                    `Continuing from "${first}"`,
+                    messages.some((m) => m.role === "tool")
+                      ? " with the earlier tool result in view."
+                      : " with no earlier tool result.",
+                  ],
+                  delayMs: 5,
+                }
+              : script(prompt, String(request.model ?? "test-model"));
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
     let aborted = false;
     res.on("close", () => (aborted = true));
@@ -188,16 +238,14 @@ export function createMockOpenAI() {
       send({ content: piece });
       await sleep(delayMs);
     }
-    if (tool) {
+    if (tools.length) {
       send({
-        tool_calls: [
-          {
-            index: 0,
-            id: `call_${Date.now()}`,
-            type: "function",
-            function: { name: tool.name, arguments: JSON.stringify(tool.arguments) },
-          },
-        ],
+        tool_calls: tools.map((tool, index) => ({
+          index,
+          id: `call_${Date.now()}_${index}`,
+          type: "function",
+          function: { name: tool.name, arguments: JSON.stringify(tool.arguments) },
+        })),
       });
       send({}, "tool_calls");
     } else {

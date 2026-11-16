@@ -10,10 +10,12 @@ import { DiffView, FileDiffs } from "./DiffView.tsx";
 import { locationLabel } from "./paths.ts";
 import { PermissionPanel } from "./PermissionPanel.tsx";
 
-type Display = "awaiting" | "running" | "done" | "failed" | "declined";
+type Display = "awaiting" | "running" | "done" | "failed" | "declined" | "interrupted";
 
 function display(entry: ToolEntry, awaiting: boolean): Display {
   if (awaiting) return "awaiting";
+  // Still pending or running when agent86 stopped partway through the turn.
+  if (entry.interrupted) return "interrupted";
   if (entry.decision === "rejected" || entry.decision === "cancelled") return "declined";
   // agent86's words for a call it did not run: "declined by user", "blocked by approval policy".
   if (entry.status === "failed" && entry.output.startsWith("Not executed:")) return "declined";
@@ -28,6 +30,7 @@ const BADGE: Record<Display, { icon: string; label: string; className: string }>
   done: { icon: "✓", label: "done", className: "text-ok" },
   failed: { icon: "✗", label: "failed", className: "text-error" },
   declined: { icon: "⊘", label: "declined", className: "text-muted" },
+  interrupted: { icon: "↯", label: "interrupted", className: "text-warn" },
 };
 
 /** An icon per ACP tool kind; `search` (agent86 1.0.19) has its own. Unknown kinds get none. */
@@ -155,6 +158,7 @@ export function ToolCard({ entry }: { entry: ToolEntry }) {
     <div
       className={`rounded-md border bg-panel ${state === "failed" ? "border-error/60" : state === "awaiting" ? "border-warn" : "border-border"}`}
       data-testid="tool-card"
+      data-tool-call-id={entry.toolCallId}
       data-state={state}
       data-kind={entry.toolKind}
     >

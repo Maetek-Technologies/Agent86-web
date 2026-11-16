@@ -12,6 +12,7 @@ import { memo, useState } from "react";
 import { Markdown } from "../markdown/Markdown.tsx";
 import { ToolCard } from "../tools/ToolCard.tsx";
 import { ModelCalls, SpendMeter } from "./Spend.tsx";
+import { useThread } from "./ThreadContext.ts";
 import { formatChars, formatDuration, useElapsed } from "./useElapsed.ts";
 
 function UserMessage({ entry }: { entry: UserEntry }) {
@@ -81,10 +82,49 @@ function Notice({ entry }: { entry: NoticeEntry }) {
   );
 }
 
+/** What the "continue" button sends after an interrupted turn (agent86 1.0.21). */
+export const CONTINUE_PROMPT = "Continue where you left off.";
+
+/**
+ * A turn agent86 stopped partway through (its process ended). agent86 1.0.21 kept the steps it
+ * finished; continuing the turn itself is not in agent86 yet, so "continue" sends a short message.
+ */
+function Interrupted({ entry, last }: { entry: TurnEndEntry; last: boolean }) {
+  const { send, busy } = useThread();
+  return (
+    <div
+      role="note"
+      data-testid="turn-interrupted"
+      className="flex flex-wrap items-center gap-3 rounded border border-warn/60 bg-warn/10 px-3 py-2 text-sm"
+    >
+      <span aria-hidden className="text-warn">
+        ↯
+      </span>
+      <span className="flex-1">
+        Interrupted: agent86 stopped partway through this turn
+        {entry.durationMs > 0 && ` (after ${formatDuration(entry.durationMs)})`}. The steps it
+        finished are kept.
+      </span>
+      {last && send && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => send(CONTINUE_PROMPT)}
+          title={`Sends "${CONTINUE_PROMPT}"`}
+          className="rounded bg-accent px-3 py-1 text-sm font-medium text-bg hover:opacity-90 disabled:opacity-50"
+        >
+          Continue
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** The end of a turn: how long it took, and with agent86's state events, what it cost. */
-function TurnEnd({ entry }: { entry: TurnEndEntry }) {
+function TurnEnd({ entry, last }: { entry: TurnEndEntry; last: boolean }) {
   const [open, setOpen] = useState(false);
   const spend = entry.spend;
+  if (entry.stopReason === "interrupted") return <Interrupted entry={entry} last={last} />;
   if (!spend) {
     return (
       <div className="flex items-center gap-3 text-xs text-muted" aria-hidden>
@@ -208,7 +248,7 @@ function Guardrail({ entry }: { entry: GuardrailEntry }) {
   );
 }
 
-function EntryView({ entry }: { entry: Entry }) {
+function EntryView({ entry, last }: { entry: Entry; last: boolean }) {
   switch (entry.kind) {
     case "user":
       return <UserMessage entry={entry} />;
@@ -221,7 +261,7 @@ function EntryView({ entry }: { entry: Entry }) {
     case "notice":
       return <Notice entry={entry} />;
     case "turn-end":
-      return <TurnEnd entry={entry} />;
+      return <TurnEnd entry={entry} last={last} />;
     case "compaction":
       return <Compaction entry={entry} />;
     case "guardrail":
@@ -234,8 +274,8 @@ function EntryView({ entry }: { entry: Entry }) {
 export function Transcript({ entries }: { entries: Entry[] }) {
   return (
     <div className="space-y-4" aria-live="polite" aria-relevant="additions">
-      {entries.map((entry) => (
-        <EntryView key={entry.id} entry={entry} />
+      {entries.map((entry, i) => (
+        <EntryView key={entry.id} entry={entry} last={i === entries.length - 1} />
       ))}
     </div>
   );

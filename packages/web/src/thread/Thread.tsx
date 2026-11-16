@@ -1,4 +1,5 @@
 import {
+  inboxItems,
   phase,
   type Agent86Client,
   type AgentSession,
@@ -13,6 +14,7 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
+import { Inbox } from "./Inbox.tsx";
 import { PhaseLine } from "./PhaseLine.tsx";
 import { PromptInput } from "./PromptInput.tsx";
 import { ThreadContext } from "./ThreadContext.ts";
@@ -62,6 +64,8 @@ export function Thread({
   const scroller = useRef<HTMLDivElement>(null);
   useStickToBottom(scroller, state.entries);
   const pending = state.permissions[0];
+  // The approval inbox (agent86 1.0.21's questions queue), when anything is asked or waiting.
+  const inbox = useMemo(() => inboxItems(state), [state]);
 
   // Keys, as in the terminal: Esc rejects a waiting approval, else interrupts the turn; a number
   // picks an approval option (when not typing); Ctrl+O expands every tool card.
@@ -123,6 +127,12 @@ export function Thread({
     void session.prompt(text, links);
   };
 
+  // The latest onPrompt, so the context below need not change with it on every render.
+  const promptListener = useRef(onPrompt);
+  useEffect(() => {
+    promptListener.current = onPrompt;
+  });
+  const busy = state.turn.running || !!state.closed;
   const context = useMemo(
     () => ({
       session,
@@ -130,8 +140,13 @@ export function Thread({
       expandAll,
       cwd: state.cwd,
       subagents: state.subagents,
+      send: (text: string) => {
+        promptListener.current?.(text);
+        void session.prompt(text);
+      },
+      busy,
     }),
-    [session, state.permissions, expandAll, state.cwd, state.subagents],
+    [session, state.permissions, expandAll, state.cwd, state.subagents, busy],
   );
 
   return (
@@ -143,23 +158,31 @@ export function Thread({
         onCost={() => send("/cost", [])}
       />
       <TrustBanner client={client} workspace={state.cwd} onTrusted={() => onTrusted?.()} />
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto" data-testid="transcript">
-        <div className="mx-auto w-full max-w-3xl px-4 py-6">
-          {state.entries.length === 0 ? (
-            <div className="py-16 text-center text-muted">
-              <p className="text-lg">What should agent86 do?</p>
-              <p className="mt-2 text-sm">
-                It works in <span className="font-mono">{state.cwd}</span>. Try a question, or a
-                command such as <span className="font-mono">/cost</span> or{" "}
-                <span className="font-mono">/tools</span>.
-              </p>
-            </div>
-          ) : (
-            <ThreadContext.Provider value={context}>
-              <Transcript entries={state.entries} />
-            </ThreadContext.Provider>
-          )}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto" data-testid="transcript">
+          <div className="mx-auto w-full max-w-3xl px-4 py-6">
+            {state.entries.length === 0 ? (
+              <div className="py-16 text-center text-muted">
+                <p className="text-lg">What should agent86 do?</p>
+                <p className="mt-2 text-sm">
+                  It works in <span className="font-mono">{state.cwd}</span>. Try a question, or a
+                  command such as <span className="font-mono">/cost</span> or{" "}
+                  <span className="font-mono">/tools</span>.
+                </p>
+              </div>
+            ) : (
+              <ThreadContext.Provider value={context}>
+                <Transcript entries={state.entries} />
+              </ThreadContext.Provider>
+            )}
+          </div>
         </div>
+        {inbox.length > 0 && (
+          <Inbox
+            items={inbox}
+            className="max-h-48 overflow-y-auto border-t border-border lg:max-h-none lg:w-72 lg:border-t-0 lg:border-l"
+          />
+        )}
       </div>
       <div className="border-t border-border bg-bg">
         <div className="mx-auto w-full max-w-3xl space-y-3 px-4 py-3">

@@ -11,6 +11,12 @@
 //   MOCK_AGENT86_RECORD    a file to append every received message to, one JSON per line
 //   MOCK_AGENT86_DB        the JSON file sessions are kept in (default: one in the temp directory),
 //                          so a later process can list and reload them, as agent86's database allows
+//
+// As 1.0.21 (MOCK_AGENT86_VERSION=1.0.21): `session/resume`, the questions queue and who asks on a
+// sub-agent's permission request (to a client that asks for the state events), and a turn saved
+// after every step. The prompt "parallel writers" delegates to two `writer` sub-agents whose
+// approvals queue up; "crash" runs a read_file step, then exits partway through the next one;
+// "exit after replying" answers, then exits while idle.
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,6 +39,11 @@ const v1019 = since(19);
  * `session.compaction`, and its state events to a client that asks (`_meta`).
  */
 const v1020 = since(20);
+/**
+ * agent86 1.0.21: `session/resume`, the questions queue and who asks (state clients only), and a
+ * session saved after every step, so a turn cut off partway keeps the steps it finished.
+ */
+const v1021 = since(21);
 const STATE = "com.maetek.agent86/state";
 /** Dollars per call for the priced model; `mock:cheap-model` has no price, as unknown models do. */
 const CALL_COST = 0.0125;
@@ -111,11 +122,18 @@ const TOOLS = [
 ].sort();
 
 let nextCall = 1;
+/**
+ * Tool call ids are unique within a session, even across processes (agent86 keeps a resumed
+ * session's ids reserved), so each process numbers its calls under its own tag.
+ */
+const callTag = randomBytes(2).toString("hex");
+const newCallId = () => `call_${callTag}_${nextCall++}`;
 
 // Sessions, kept in a file like agent86's database, so another process can list and load them.
 const DB = process.env.MOCK_AGENT86_DB ?? join(tmpdir(), "mock-agent86-sessions.json");
 /**
- * @typedef {{ user: string; agent: string }} Turn
+ * @typedef {{ id: string; title: string; kind: string; output: string }} SavedTool
+ * @typedef {{ user: string; agent: string; tools?: SavedTool[] }} Turn
  * @typedef {{ cwd?: string; title?: string; updatedAt: string; mode: string; model: string; turns: Turn[] }} Saved
  */
 /** @returns {Record<string, Saved>} */
@@ -333,7 +351,7 @@ const app = agent({ name: "mock-agent86" })
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: true,
-        sessionCapabilities: { list: {} },
+        sessionCapabilities: { list: {}, ...(v1021 ? { resume: {} } : {}) },
         promptCapabilities: { image: false, audio: false, embeddedContext: false },
         mcpCapabilities: { http: true, sse: true },
         ...(v1020 ? { _meta: { [STATE]: { version: 1 } } } : {}),
@@ -379,16 +397,53 @@ const app = agent({ name: "mock-agent86" })
     const settings = defaultSettings();
     open.set(params.sessionId, settings);
     for (const turn of saved.turns) {
-      for (const [sessionUpdate, text] of /** @type {const} */ ([
-        ["user_message_chunk", turn.user],
-        ["agent_message_chunk", turn.agent],
-      ])) {
+      await client.notify(methods.client.session.update, {
+        sessionId: params.sessionId,
+        update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: turn.user } },
+      });
+      // Replayed calls come as text, as agent86 replays them.
+      for (const tool of turn.tools ?? []) {
         await client.notify(methods.client.session.update, {
           sessionId: params.sessionId,
-          update: { sessionUpdate, content: { type: "text", text } },
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: tool.id,
+            title: tool.title,
+            kind: /** @type {any} */ (tool.kind),
+            status: "pending",
+          },
+        });
+        await client.notify(methods.client.session.update, {
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: tool.id,
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: tool.output } }],
+          },
+        });
+      }
+      if (turn.agent) {
+        await client.notify(methods.client.session.update, {
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: turn.agent },
+          },
         });
       }
     }
+    advertise(client, params.sessionId);
+    return { configOptions: configOptions(settings) };
+  })
+  // As agent86 1.0.21: the session reopened without a replay, then the commands, as after a load.
+  .onRequest(methods.agent.session.resume, ({ params, client }) => {
+    remember("session/resume", params);
+    if (!v1021) throw new RequestError(-32601, `Method not found: session/resume`);
+    if (!loadDb()[params.sessionId])
+      throw new RequestError(-32002, `Session not found: ${params.sessionId}`);
+    const settings = defaultSettings();
+    open.set(params.sessionId, settings);
     advertise(client, params.sessionId);
     return { configOptions: configOptions(settings) };
   })
@@ -457,7 +512,7 @@ const app = agent({ name: "mock-agent86" })
      * @param {string[]} toolCalls @param {{ card: string; agent: string; run: number }} [sub]
      */
     const modelCall = async (toolCalls, sub) => {
-      if (!v1020) return;
+      if (!v1020) return 0;
       step += 1;
       const priced = settings.model === DEFAULT_MODEL;
       const cost = priced ? CALL_COST : undefined;
@@ -490,15 +545,247 @@ const app = agent({ name: "mock-agent86" })
         some_future_field: { ignored: true },
         ...(sub ? { agent: sub.agent, depth: 1, run: sub.run, card: sub.card } : {}),
       });
+      return cost ?? 0;
     };
 
-    /** Save the turn, as agent86 does whether the turn finished or not. @param {"end_turn" | "cancelled"} stopReason */
-    const finish = (stopReason) => {
+    /** This turn's finished calls, saved with it. @type {SavedTool[]} */
+    const savedTools = [];
+    let turnSaved = false;
+    /** Save the turn so far, replacing what an earlier step saved of it. */
+    const saveTurn = () =>
       saveSession(sessionId, (saved) => {
         saved.title ??= text.split("\n")[0]?.slice(0, 60);
-        saved.turns.push({ user: text, agent: reply });
+        if (turnSaved) saved.turns.pop();
+        saved.turns.push({
+          user: text,
+          agent: reply,
+          ...(savedTools.length ? { tools: savedTools } : {}),
+        });
+        turnSaved = true;
       });
+    /** Save the turn, as agent86 does whether the turn finished or not. @param {"end_turn" | "cancelled"} stopReason */
+    const finish = (stopReason) => {
+      saveTurn();
       return { stopReason };
+    };
+
+    /** @param {Record<string, unknown>} update */
+    const notify = (update) =>
+      client.notify(methods.client.session.update, {
+        sessionId,
+        update: /** @type {any} */ (update),
+      });
+
+    /**
+     * Two `writer` sub-agents delegated in one step, each asking to write a file, as agent86 1.0.21
+     * sends it (checked against a recording): the questions are asked one at a time, in arrival
+     * order; a state client gets each change of the queue (the first before its call's card, the
+     * next straight after an answer) and, on each request, who asks. Cancelling declines what
+     * waits without asking it.
+     */
+    const parallelWriters = async () => {
+      await say("agent_thought_chunk", "I will use delegate, delegate.");
+      await modelCall(["delegate", "delegate"]);
+      const writers = ["one", "two"].map((name, i) => {
+        const card = newCallId();
+        return {
+          name,
+          run: i + 1,
+          card,
+          call: `${card}/1`,
+          task: `writer-task-${name}: write the file`,
+          args: { path: `${name}.txt`, content: `written by ${name}\n` },
+          // The first works in a git worktree, so its approval says so.
+          worktree:
+            i === 0
+              ? {
+                  path: join(process.cwd(), ".agent86", "worktrees", "writer-1"),
+                  branch: "agent86/writer-1",
+                }
+              : null,
+          spent: 0,
+          output: "",
+        };
+      });
+      for (const w of writers) {
+        await notify({
+          sessionUpdate: "tool_call",
+          toolCallId: w.card,
+          title: `writer: ${w.task}`,
+          name: "delegate",
+          kind: "other",
+          status: "pending",
+          rawInput: { agent: "writer", task: w.task },
+        });
+      }
+      for (const w of writers) {
+        await notify({
+          sessionUpdate: "tool_call_update",
+          toolCallId: w.card,
+          status: "in_progress",
+          content: [{ type: "content", content: { type: "text", text: "writer started" } }],
+        });
+        await emit({
+          kind: "subagent",
+          phase: "started",
+          card: w.card,
+          run: w.run,
+          agent: "writer",
+          depth: 1,
+          task: w.task,
+        });
+      }
+      for (const w of writers)
+        w.spent += await modelCall(["write_file"], { card: w.card, agent: "writer", run: w.run });
+
+      /** @param {(typeof writers)[number]} w */
+      const question = (w) => ({
+        kind: "approval",
+        tool: "write_file",
+        call: w.call,
+        agent: "writer",
+        card: w.card,
+      });
+      const asking = settings.mode === "ask";
+      /** @param {(typeof writers)[number] | null} now @param {typeof writers} behind */
+      const queue = (now, behind) =>
+        v1021 && asking
+          ? emit({
+              kind: "questions",
+              asking: now ? question(now) : null,
+              waiting: behind.map(question),
+            })
+          : Promise.resolve();
+
+      for (const [i, w] of writers.entries()) {
+        const behind = writers.slice(i + 1);
+        if (i === 0) await queue(w, []);
+        const title = `[writer] write_file(${JSON.stringify(w.args)})`;
+        const file = join(process.cwd(), w.args.path);
+        await notify({
+          sessionUpdate: "tool_call",
+          toolCallId: w.call,
+          title,
+          name: "write_file",
+          kind: "edit",
+          status: "pending",
+          rawInput: w.args,
+          ...(v1019 ? { locations: [{ path: file, line: 1 }] } : {}),
+        });
+        await queue(w, behind);
+        const { approval, diff, run } = describe({ name: "write_file", arguments: w.args });
+        let allowed = settings.mode === "auto";
+        if (asking) {
+          /** @type {import("@agentclientprotocol/sdk").RequestPermissionResponse} */
+          const answer = await client.request(methods.client.session.requestPermission, {
+            sessionId,
+            toolCall: {
+              toolCallId: w.call,
+              title,
+              kind: "edit",
+              status: "pending",
+              rawInput: w.args,
+              content: [
+                ...(v1019 && diff ? [{ type: /** @type {const} */ ("diff"), ...diff }] : []),
+                {
+                  type: "content",
+                  content: {
+                    type: "text",
+                    text: `Warning: Asked by the 'writer' sub-agent.\n\n${approval}`,
+                  },
+                },
+              ],
+              ...(v1019 ? { locations: [{ path: file, line: 1 }] } : {}),
+            },
+            options: [
+              { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+              { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+            ],
+            ...(v1021 && wants.state
+              ? {
+                  _meta: {
+                    "com.maetek.agent86/subagent": {
+                      card: w.card,
+                      run: w.run,
+                      agent: "writer",
+                      depth: 1,
+                      worktree: w.worktree,
+                      steps: 1,
+                      cost_usd: w.spent,
+                      turn_cost_usd: turnSpent.get(sessionId) ?? 0,
+                      cost_cap_usd: COST_CAP,
+                    },
+                  },
+                }
+              : {}),
+          });
+          remember("permission answer", answer);
+          allowed =
+            answer.outcome.outcome === "selected" && answer.outcome.optionId === "allow-once";
+        }
+        const outcome = allowed ? run() : { ok: false, text: "Not executed: declined by user." };
+        w.output = outcome.text;
+        await notify({
+          sessionUpdate: "tool_call_update",
+          toolCallId: w.call,
+          status: outcome.ok ? "completed" : "failed",
+          content: [{ type: "content", content: { type: "text", text: outcome.text } }],
+        });
+        if (cancelled.has(sessionId)) {
+          // What waits is declined without being asked; the queue ends empty.
+          await queue(null, []);
+          for (const other of writers) {
+            await emit({
+              kind: "subagent",
+              phase: "finished",
+              card: other.card,
+              run: other.run,
+              agent: "writer",
+              depth: 1,
+              ok: true,
+            });
+            await notify({
+              sessionUpdate: "tool_call_update",
+              toolCallId: other.card,
+              status: "completed",
+              content: [
+                {
+                  type: "content",
+                  content: { type: "text", text: "[sub-agent 'writer' cancelled]" },
+                },
+              ],
+            });
+          }
+          return finish("cancelled");
+        }
+      }
+      await queue(null, []);
+      for (const w of writers) {
+        w.spent += await modelCall([], { card: w.card, agent: "writer", run: w.run });
+        await emit({
+          kind: "subagent",
+          phase: "finished",
+          card: w.card,
+          run: w.run,
+          agent: "writer",
+          depth: 1,
+          ok: true,
+          input_tokens: 2000,
+          output_tokens: 400,
+          cost_usd: w.spent,
+        });
+        await notify({
+          sessionUpdate: "tool_call_update",
+          toolCallId: w.card,
+          status: "completed",
+          content: [
+            { type: "content", content: { type: "text", text: `Tool result: ${w.output}` } },
+          ],
+        });
+      }
+      await modelCall([]);
+      await say("agent_message_chunk", "Both writers are done.");
+      return finish("end_turn");
     };
 
     if (text === "/cost") {
@@ -625,6 +912,52 @@ const app = agent({ name: "mock-agent86" })
       });
       return finish("end_turn");
     }
+    if (/^Continue where you left off/i.test(text)) {
+      // As the scripted model: what it sees of the earlier turns.
+      const earlier = loadDb()[sessionId]?.turns ?? [];
+      await modelCall([]);
+      await say(
+        "agent_message_chunk",
+        `Continuing from "${earlier[0]?.user ?? ""}"` +
+          (earlier.some((t) => t.tools?.length)
+            ? " with the earlier tool result in view."
+            : " with no earlier tool result."),
+      );
+      return finish("end_turn");
+    }
+    if (/\bcrash\b/i.test(text)) {
+      // A read_file step that finishes, then agent86 dies partway through the next. From 1.0.21
+      // the finished step is saved; before, nothing of the turn is.
+      const toolCallId = newCallId();
+      const title = `read_file({"path": "README.md"})`;
+      await say("agent_thought_chunk", "I will use read_file.");
+      await modelCall(["read_file"]);
+      await client.notify(methods.client.session.update, {
+        sessionId,
+        update: { sessionUpdate: "tool_call", toolCallId, title, kind: "read", status: "pending" },
+      });
+      const output = describe({ name: "read_file", arguments: { path: "README.md" } }).run().text;
+      await client.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId,
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: output } }],
+        },
+      });
+      savedTools.push({ id: toolCallId, title, kind: "read", output });
+      if (v1021) saveTurn();
+      await say("agent_thought_chunk", "Taking my time.");
+      for (const word of ["Halfway", " through", " the", " answer"]) {
+        await say("agent_message_chunk", word);
+        await sleep(20);
+      }
+      process.stderr.write("mock-agent86: crashing partway through the turn\n");
+      setTimeout(() => process.exit(70), 50);
+      return new Promise(() => undefined);
+    }
+    if (/\bparallel writers\b/i.test(text)) return parallelWriters();
     if (/ignore all previous instructions/i.test(text)) {
       await emit({
         kind: "guardrail",
@@ -643,7 +976,7 @@ const app = agent({ name: "mock-agent86" })
     }
     const tool = toolFor(text);
     if (tool) {
-      const toolCallId = `call_${nextCall++}`;
+      const toolCallId = newCallId();
       const title = `${tool.name}(${JSON.stringify(tool.arguments)})`;
       const kind = KINDS[/** @type {keyof typeof KINDS} */ (tool.name)] ?? "other";
       await say("agent_thought_chunk", `I will use ${tool.name}.`);
@@ -732,6 +1065,9 @@ const app = agent({ name: "mock-agent86" })
         await sleep(delayMs);
       }
     }
+    // "exit after replying": the process ends once the turn is answered, as if agent86 were
+    // stopped while idle, so a test can see the thread reconnect.
+    if (/\bexit after replying\b/i.test(text)) setTimeout(() => process.exit(0), 100);
     return finish(cancelled.has(sessionId) ? "cancelled" : "end_turn");
   });
 
