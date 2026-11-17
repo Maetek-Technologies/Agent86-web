@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent86-web: a browser interface for agent86</title>
+    <meta
+      name="description"
+      content="agent86-web gives you agent86's conversation, tool calls, approvals, and saved sessions in a browser tab. Runs on your machine with npx agent86-web."
+    />
+    <meta property="og:title" content="agent86-web" />
+    <meta
+      property="og:description"
+      content="A browser interface for agent86, the agentic command-line harness."
+    />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:image"
+      content="https://maetek-technologies.github.io/Agent86-web/agent86-logo.png"
+    />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap topbar-inner">
+        <a class="brand" href="#">
+          <img src="favicon.png" alt="" width="28" height="28" />
+          <span class="wordmark">AGENT86</span><span class="brand-sub">web</span>
+        </a>
+        <nav>
+          <a href="#features">Features</a>
+          <a href="#start">Get started</a>
+          <a href="#security">Security</a>
+          <a href="https://github.com/Maetek-Technologies/Agent86-web">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero wrap">
+        <img
+          class="hero-logo"
+          src="agent86-logo.png"
+          alt="The agent86 detective mascot"
+          width="144"
+          height="144"
+        />
+        <h1>agent86, in your browser.</h1>
+        <p class="lede">
+          agent86-web gives you
+          <a href="https://github.com/Maetek-Technologies/agent86">agent86</a>'s conversation, tool
+          calls, approvals, and saved sessions in a browser tab. The agent itself does not change:
+          it still runs on your machine, with your config, keys, sandbox, memory, and sessions.
+        </p>
+        <div class="cta">
+          <div class="cmd" data-copy="npx agent86-web --root ~/code">
+            <span class="prompt">$</span> <code>npx agent86-web --root ~/code</code>
+            <button type="button" class="copy" aria-label="Copy command">copy</button>
+          </div>
+          <a class="button" href="https://github.com/Maetek-Technologies/Agent86-web"
+            >View on GitHub</a
+          >
+        </div>
+        <p class="meta">
+          <a href="https://www.npmjs.com/package/agent86-web">v0.4.2 on npm</a> · MIT license ·
+          Node.js 20.19+ · agent86 1.0.15+
+        </p>
+      </section>
+
+      <section class="wrap diagram-section">
+        <pre
+          class="diagram"
+          aria-label="How it works: the browser talks to a local bridge over WebSocket, and the bridge runs agent86 acp over stdio"
+        >
+ Browser (React SPA)  ──WebSocket──▶  agent86-web bridge (Node)  ──stdio──▶  agent86 acp
+   chat, diffs,           JSON-RPC         serves the UI, checks           the real agent:
+   approvals, sessions    (ACP v1)         origin and token, spawns        models, tools,
+                                           one agent86 per thread          sandbox, memory</pre>
+        <p class="caption">
+          agent86 already speaks the
+          <a href="https://agentclientprotocol.com">Agent Client Protocol</a>. agent86-web is an ACP
+          client in the browser, with a small local bridge between a WebSocket and agent86's
+          standard input and output. agent86 needs no changes.
+        </p>
+      </section>
+
+      <section id="features" class="wrap">
+        <h2>What you get</h2>
+        <div class="grid">
+          <article class="card">
+            <h3>Conversations</h3>
+            <p>
+              Streamed Markdown with syntax highlighting, and the model's reasoning, which you can
+              fold away.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Approvals</h3>
+            <p>
+              Every edit and command waits with the exact diff in view. An inbox lists the approvals
+              waiting behind it, including which sub-agent asks.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Saved sessions</h3>
+            <p>
+              Pick up sessions started at a terminal, and continue a browser session at a terminal
+              with
+              <code>agent86 --resume</code>.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Several threads at once</h3>
+            <p>
+              Each thread is its own agent86 in a project folder. Threads reconnect by themselves
+              and survive restarts.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Memory</h3>
+            <p>
+              See the facts and episodes agent86 has stored, pin the ones that matter, and forget
+              the wrong ones.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Secrets</h3>
+            <p>
+              Hand agent86 an API key through a masked entry, remembered for the project if you
+              like. The model only ever sees the name.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Keyboard first</h3>
+            <p>
+              Model and approval-mode pickers, <code>/</code> commands, <code>@</code> file
+              mentions, and shortcuts that mirror the terminal.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Yours, locally</h3>
+            <p>
+              No account and no cloud. Your config, keys, and sandbox stay exactly where they are.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="start" class="wrap">
+        <h2>Get started</h2>
+        <ol class="steps">
+          <li>
+            <p>Install agent86 and give it a model key, if you haven't already:</p>
+            <pre><code>npm install -g agent86
+agent86 keys set openrouter      # or anthropic, openai, …</code></pre>
+          </li>
+          <li>
+            <p>Start agent86-web with the folders threads may run in:</p>
+            <pre><code>npx agent86-web --root ~/code</code></pre>
+            <p class="note">
+              It prints a one-time link and opens it in your browser. Add
+              <code>--port 8686 --save-port</code> once to keep the same port.
+            </p>
+          </li>
+          <li>
+            <p>Pick a project, start a thread, and chat.</p>
+          </li>
+        </ol>
+        <p>
+          All options are in the
+          <a
+            href="https://github.com/Maetek-Technologies/Agent86-web/blob/main/packages/bridge/README.md"
+            >user guide</a
+          >. To use it from another device, forward the port over SSH.
+        </p>
+      </section>
+
+      <section id="security" class="wrap">
+        <h2>Locked down by default</h2>
+        <p>agent86-web can make agent86 edit files and run commands, so the bridge is strict:</p>
+        <ul class="checks">
+          <li>Listens only on loopback (<code>127.0.0.1</code>, <code>::1</code>).</li>
+          <li>
+            Signs the browser in with a one-time token, then an <code>HttpOnly</code>,
+            <code>SameSite=Strict</code> cookie.
+          </li>
+          <li>
+            Checks <code>Host</code>, <code>Origin</code>, and a CSRF header, which stops DNS
+            rebinding and cross-site requests.
+          </li>
+          <li>Serves a strict Content-Security-Policy.</li>
+          <li>Runs threads only under the <code>--root</code> folders you allow.</li>
+        </ul>
+        <p>
+          The full threat model is in
+          <a href="https://github.com/Maetek-Technologies/Agent86-web/blob/main/docs/SECURITY.md"
+            >docs/SECURITY.md</a
+          >.
+        </p>
+      </section>
+
+      <section class="wrap docs">
+        <h2>Documentation</h2>
+        <ul class="links">
+          <li>
+            <a
+              href="https://github.com/Maetek-Technologies/Agent86-web/blob/main/packages/bridge/README.md"
+              >User guide</a
+            >
+          </li>
+          <li>
+            <a href="https://github.com/Maetek-Technologies/Agent86-web/blob/main/CHANGELOG.md"
+              >Changelog</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://github.com/Maetek-Technologies/Agent86-web/blob/main/docs/ARCHITECTURE.md"
+              >Architecture</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://github.com/Maetek-Technologies/Agent86-web/blob/main/docs/FEATURE_PARITY.md"
+              >Feature parity</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://github.com/Maetek-Technologies/Agent86-web/blob/main/docs/PROJECT_PLAN.md"
+              >Project plan</a
+            >
+          </li>
+          <li><a href="https://github.com/Maetek-Technologies/Agent86-web/issues">Issues</a></li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <p>
+          agent86-web is a
+          <a href="https://github.com/Maetek-Technologies">Maetek Technologies</a> project. agent86
+          and its name, logo, and mascot belong to Maetek Technologies. MIT licensed.
+        </p>
+      </div>
+    </footer>
+
+    <script>
+      for (const el of document.querySelectorAll("[data-copy]")) {
+        const button = el.querySelector(".copy");
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(el.dataset.copy);
+            button.textContent = "copied";
+          } catch {
+            button.textContent = "press Ctrl+C";
+          }
+          setTimeout(() => (button.textContent = "copy"), 1500);
+        });
+      }
+    </script>
+  </body>
+</html>
