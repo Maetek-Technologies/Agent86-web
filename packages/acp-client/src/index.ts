@@ -9,6 +9,7 @@ export {
 } from "./handshake.ts";
 export {
   Agent86Client,
+  Agent86RequestError,
   AgentSession,
   MAX_LOG_LINES,
   parseUntrusted,
@@ -24,6 +25,7 @@ export {
 } from "./agent86-client.ts";
 export * from "./session-state.ts";
 export * from "./agent86-events.ts";
+export * from "./agent86-extensions.ts";
 export type {
   AvailableCommand,
   InitializeResponse,

@@ -18,6 +18,9 @@
 //                        approvals queue up (agent86 1.0.21's approval inbox)
 //   contains "crash"     calls read_file, then streams its answer slowly, so a test can stop
 //                        agent86 partway through the turn, after one finished step
+//   "ask for a secret"   calls request_secret for STRIPE_KEY ("to create the webhook"), which agent86
+//                        1.0.23 sends to a client with a masked entry as `secret/request`
+//   "remember that <x>"  calls remember with <x>, so agent86 1.0.22 stores a fact
 //   "Continue where you left off"  says what it sees of the earlier turn (its first prompt, and
 //                        whether a tool result is in the history), so a test can check that a
 //                        resumed session kept its finished steps
@@ -75,6 +78,15 @@ export function toolsFor(prompt) {
       arguments: { agent: "writer", task: `writer-task-${name}: write the file` },
     }));
   if (/\bcrash\b/i.test(prompt)) return [{ name: "read_file", arguments: { path: "README.md" } }];
+  if (/\bask for a secret\b/i.test(prompt))
+    return [
+      {
+        name: "request_secret",
+        arguments: { name: "STRIPE_KEY", reason: "to create the webhook" },
+      },
+    ];
+  const fact = /\bremember that (.+)$/i.exec(prompt);
+  if (fact) return [{ name: "remember", arguments: { text: String(fact[1]).trim() } }];
   const tool = toolFor(prompt);
   return tool ? [tool] : [];
 }

@@ -9,7 +9,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { WebSocket } from "ws";
 import { needsShell } from "./agent86.ts";
-import { filterClientMessage } from "./policy.ts";
+import { filterClientMessage, redactSecrets, SECRET_REQUEST_METHOD } from "./policy.ts";
 
 /** The largest message relayed in either direction (docs/SECURITY.md T12). */
 export const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
@@ -37,6 +37,12 @@ export interface AgentProcessOptions {
   workspace: string;
   realpath: (path: string) => string;
   log?: (line: string) => void;
+  /**
+   * Called with each message relayed, `C>` from the browser and `A>` from agent86, already passed
+   * through `redactSecrets` (a secret's value is `<hidden>`). Never called with a refused or
+   * unparsable frame. For the opt-in transcript (`AGENT86_WEB_TRANSCRIPT`).
+   */
+  record?: (direction: "C>" | "A>", message: unknown) => void;
   now?: () => number;
 }
 
@@ -206,13 +212,19 @@ export class AgentProcess {
         id: message.id,
         method: message.method,
       });
+      this.options.record?.("C>", redactSecrets(message));
       this.write({ ...message, id: rewritten });
       return;
     }
     if (message.method === undefined && isId(message.id)) {
       // The answer to one of agent86's requests.
+      const answering = this.asked.get(message.id);
       if (!this.asked.delete(message.id)) return;
+      this.options.record?.("C>", redactSecrets(message, answering));
+      this.write(message);
+      return;
     }
+    this.options.record?.("C>", redactSecrets(message));
     this.write(message);
   }
 
@@ -234,6 +246,8 @@ export class AgentProcess {
       return;
     }
     const { id, method } = message;
+    // agent86 never sends a secret's value; redacting costs nothing and keeps the rule in one place.
+    this.options.record?.("A>", redactSecrets(message));
 
     if (method === undefined && typeof id === "string" && this.inflight.has(id)) {
       // A reply: restore the browser's id, or drop it if its socket has gone.
@@ -262,11 +276,14 @@ export class AgentProcess {
     const reply =
       method === "session/request_permission"
         ? { jsonrpc: "2.0", id, result: { outcome: { outcome: "cancelled" } } }
-        : {
-            jsonrpc: "2.0",
-            id,
-            error: { code: -32603, message: "No browser is connected to answer." },
-          };
+        : method === SECRET_REQUEST_METHOD
+          ? // agent86 1.0.23 reads anything but `entered` as declined; say so plainly.
+            { jsonrpc: "2.0", id, result: { outcome: "declined" } }
+          : {
+              jsonrpc: "2.0",
+              id,
+              error: { code: -32603, message: "No browser is connected to answer." },
+            };
     this.write(reply);
   }
 

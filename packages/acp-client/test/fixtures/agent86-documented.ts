@@ -152,3 +152,76 @@ export const DOCUMENTED = {
     title: "known folder",
   },
 } as const;
+
+/**
+ * agent86 1.0.22 and 1.0.23 shapes the recorded run (agent86-1.0.23.ts) did not produce, written
+ * from agent86's docs/ACP.md ("agent86's memory" and "agent86's secrets"). The recording ran with
+ * AGENT86_ACP_SECRETS=off, so a keyring, a remembered secret, and a keyring warning are here.
+ */
+export const DOCUMENTED_1023 = {
+  /** An advertisement in a version this client does not read: neither feature is used. */
+  futureVersions: {
+    loadSession: true,
+    _meta: {
+      "com.maetek.agent86/memory": { version: 2 },
+      "com.maetek.agent86/secrets": { version: 2 },
+    },
+  },
+  /** An episode archiving a compaction, pinned, from another session, with a field from later. */
+  compactionEpisode: {
+    kind: "episode",
+    id: 7,
+    text: "refactor the parser",
+    storedAt: "2026-11-16T10:00:00Z",
+    pinned: true,
+    pinnedAt: "2026-11-16T11:00:00Z",
+    category: "compaction",
+    outcome: "Summary: moved the tokenizer into its own module.",
+    sessionId: "s-older",
+    score: 0.93,
+  },
+  /** `[memory] enabled = false`. */
+  memoryOff: { error: { code: -32600, message: "Memory is off for this session" } },
+  /** A keyring is there, and one secret is remembered for the project. */
+  secretListWithKeyring: {
+    secrets: [
+      { name: "STRIPE_KEY", remembered: true },
+      { name: "GITHUB_TOKEN", remembered: false },
+    ],
+    canRemember: true,
+  },
+  secretSetRemembered: { name: "STRIPE_KEY", remembered: true },
+  secretForgetWarning: {
+    forgotten: true,
+    warning: "the keyring refused to delete it; remove it with your OS's credential manager",
+  },
+  /** The doc's example, with a value already remembered under the name. */
+  secretRequestRemembered: {
+    jsonrpc: "2.0",
+    id: 4,
+    method: "_com.maetek.agent86/secret/request",
+    params: {
+      sessionId: "s1",
+      name: "STRIPE_KEY",
+      reason: "to create the webhook",
+      replacing: true,
+      canRemember: true,
+      remembered: true,
+      hint: "a field from a later version",
+    },
+  },
+  /** A limit question (the terminal's; listed by the doc among the kinds). */
+  questionsLimit: {
+    jsonrpc: "2.0",
+    method: "_com.maetek.agent86/session/event",
+    params: {
+      sessionId: "s1",
+      event: {
+        kind: "questions",
+        ts: 1794875700,
+        asking: { kind: "limit", subject: "max_steps" },
+        waiting: [{ kind: "secret" }],
+      },
+    },
+  },
+} as const;

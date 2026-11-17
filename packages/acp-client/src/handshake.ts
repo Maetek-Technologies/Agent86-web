@@ -5,6 +5,7 @@ import {
   type InitializeResponse,
 } from "@agentclientprotocol/sdk";
 import { STATE_EXTENSION } from "./agent86-events.ts";
+import { SECRETS_EXTENSION } from "./agent86-extensions.ts";
 
 /** The oldest agent86 whose ACP server agent86-web is built against. */
 export const MIN_AGENT86_VERSION = "1.0.15";
@@ -19,16 +20,19 @@ export const CLIENT_INFO: Implementation = {
  * What agent86-web advertises. The browser does not own the files or a terminal, so both are off
  * and agent86's tools use the disk (the bridge forces the same values; see docs/SECURITY.md T9).
  *
- * Two opt-ins, which an agent86 that does not know them ignores:
+ * Opt-ins, which an agent86 that does not know them ignores:
  * - `session.compaction`: a compaction arrives as ACP `compaction_update` (agent86 1.0.20).
  * - agent86's state events. They must be asked for here, before the answer says whether agent86
  *   offers them; the client uses them only when it does (see `Agent86Client.features`).
+ * - agent86's secrets (1.0.23): a promise that agent86-web draws a masked entry for the model's
+ *   `secret/request` and keeps the typed value out of the thread, its history, and its logs, so
+ *   agent86 offers the model `request_secret`.
  */
 export const CLIENT_CAPABILITIES: ClientCapabilities = {
   fs: { readTextFile: false, writeTextFile: false },
   terminal: false,
   session: { compaction: {} },
-  _meta: { [STATE_EXTENSION]: true },
+  _meta: { [STATE_EXTENSION]: true, [SECRETS_EXTENSION]: true },
 };
 
 export interface Compatibility {

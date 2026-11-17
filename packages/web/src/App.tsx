@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { compareVersions } from "@agent86-web/acp-client";
-import { shutdown, type BridgeInfo } from "./api.ts";
+import { onNewLaunchLink, shutdown, signInAgain, type BridgeInfo } from "./api.ts";
 import { Sidebar } from "./shell/Sidebar.tsx";
 import { Tabs } from "./shell/Tabs.tsx";
 import { useBridge } from "./shell/useBridge.ts";
@@ -492,6 +492,16 @@ function Shell({ info, onStopped }: { info: BridgeInfo; onStopped: () => void })
   useEffect(() => {
     manager.restore();
     return () => manager.closeAll();
+  }, [manager]);
+
+  // A new launch link (agent86-web restarted on this port): sign in again and reconnect every
+  // thread now, keeping what each shows, rather than reloading the page.
+  useEffect(() => {
+    onNewLaunchLink(async () => {
+      await signInAgain();
+      manager.reconnectAll();
+    });
+    return () => onNewLaunchLink(undefined);
   }, [manager]);
 
   const remember = useCallback((workspace: string) => {

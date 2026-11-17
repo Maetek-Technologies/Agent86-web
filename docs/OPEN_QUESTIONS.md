@@ -10,6 +10,9 @@ Each question has a recommendation. Settle each one before the milestone listed 
 ### Q2. Project trust
 **Decided 2026-11-10, built in M4:** the browser may trust a project, through a "Trust this project" confirmation. The design is in [ADR 0004](adr/0004-project-trust-from-the-browser.md): the dialog shows the project's `.agent86/config.toml`, the bridge remembers the decision by the file's SHA-256 hash and asks again when the file changes, and trusted threads are started with `--trust-project`. The banner appears when agent86's stderr says it ignored settings that need trust.
 
+### Q3. Secrets
+**Decided 2026-11-16, built in M10:** agent86 1.0.23 added the protocol-level secret request this question recommended raising upstream: a client that claims a masked entry (`clientCapabilities._meta["com.maetek.agent86/secrets"]`) is asked for a secret when the model calls `request_secret`, and any client can set, list, and forget secrets for its session. agent86-web claims it and draws its own masked prompt and secrets panel; the value goes from the masked input to agent86 and is kept nowhere in the page or the bridge (SECURITY.md T22). Neither the bridge nor the page touches agent86's keyring layout: remembering is agent86's own `remember`. With agent86 older than 1.0.23, the terminal workflow is still the answer (`/secret NAME`, remembered for the project, then it loads into web threads automatically). Originally, before 1.0.23: ACP forbids an agent asking for passwords or keys through a form, and a browser-side prompt would have needed a change in agent86 or the bridge writing agent86's keyring directly, which ADR 0003 rules out.
+
 ### Q7. Branding
 **Decided 2026-11-10:** agent86-web may use the agent86 name, logo, and mascot. **Updated 2026-11-11:** agent86-web is now a Maetek Technologies project (the repository moved to `Maetek-Technologies/Agent86-web`), so the READMEs and the About panel credit it to Maetek Technologies directly.
 
@@ -23,11 +26,6 @@ Each question has a recommendation. Settle each one before the milestone listed 
 **Decided 2026-11-10 (M1):** use the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk) (Apache-2.0), pinned to an exact version, wrapped in `packages/acp-client`. It is built on Web Streams, so it runs in the browser unchanged. It plays both the client role (the web UI) and the agent role (the mock agent), bundles the v1 schema, and validates messages with zod. The browser transport is a small adapter (`webSocketStream`). The cost is bundle size: the M1 client is about 108 kB gzipped, mostly the SDK and zod. Revisit if that matters, for example by lazy-loading or importing narrower entry points.
 
 ## Open
-
-### Q3. Secrets
-**Needed by:** M4 (docs), phase 2 (feature)
-ACP forbids an agent asking for passwords or keys through a form, so agent86 doesn't offer `request_secret` over ACP. A browser-side secret prompt would need either a change in agent86 or the bridge writing into agent86's keyring layout directly, which couples to agent86 internals and is ruled out by ADR 0003.
-**Recommendation:** phase 1 documents the terminal workflow (`/secret NAME`, remembered for the project, then it loads into web threads automatically). Phase 2 offers environment-variable injection from a settings page. Raise a protocol-level secret request with agent86 and ACP upstream.
 
 ### Q4. Model and MCP configuration screens
 **Needed by:** after M5

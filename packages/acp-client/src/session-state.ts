@@ -97,6 +97,26 @@ export interface PendingPermission {
   asker?: SubagentAsker;
 }
 
+/**
+ * The model asks for a secret (agent86 1.0.23's `secret/request`). The state holds what was asked,
+ * never what is typed: the value goes from the masked entry straight to agent86.
+ */
+export interface PendingSecret {
+  /** Local id, for answering. */
+  id: number;
+  name: string;
+  /** The model's words. */
+  reason: string;
+  /** A value is held under this name already; entering one replaces it. */
+  replacing: boolean;
+  /** A keyring is there, so it can be remembered for the project. */
+  canRemember: boolean;
+  /** It is remembered now, so the remember choice starts on. */
+  remembered: boolean;
+  /** The `request_secret` call's card, when it is in the thread. */
+  toolCallId?: string;
+}
+
 export interface NoticeEntry {
   kind: "notice";
   id: number;
@@ -220,6 +240,8 @@ export interface SessionState {
   routedModel?: string;
   /** The questions queue while a turn runs, when agent86 sends it; absent when empty. */
   questions?: QuestionQueue;
+  /** Secrets the model asked for that wait for an answer, oldest first; absent when none. */
+  secrets?: PendingSecret[];
   /** Why the connection ended, once it has. */
   closed?: string;
   /** Set when the connection ended while a turn was running: when that turn started. */
@@ -438,7 +460,13 @@ export function markClosed(state: SessionState, reason: string, now: number): Se
  * turn, the closed state, the queue) is dropped.
  */
 export function continueState(previous: SessionState): SessionState {
-  const { closed: _closed, closedDuringTurn: _cut, questions: _questions, ...rest } = previous;
+  const {
+    closed: _closed,
+    closedDuringTurn: _cut,
+    questions: _questions,
+    secrets: _secrets,
+    ...rest
+  } = previous;
   return { ...rest, permissions: [], turn: { running: false, cancelRequested: false } };
 }
 
@@ -531,6 +559,45 @@ export function resolvePermission(
   if (!request) return state;
   const next = { ...state, permissions: state.permissions.filter((p) => p.id !== id) };
   return updateTool(next, request.toolCallId, (entry) => ({ ...entry, decision }));
+}
+
+/**
+ * The model asked for a secret. Its `request_secret` card (announced just before) is linked, so
+ * the inbox can point at it.
+ */
+export function addSecretRequest(
+  state: SessionState,
+  request: Omit<PendingSecret, "id" | "toolCallId">,
+): { state: SessionState; id: number } {
+  const id = state.nextId;
+  let toolCallId: string | undefined;
+  for (let i = state.entries.length - 1; i >= 0; i--) {
+    const entry = state.entries[i]!;
+    if (entry.kind === "user") break;
+    if (
+      entry.kind === "tool" &&
+      entry.name === "request_secret" &&
+      (entry.status === "pending" || entry.status === "in_progress") &&
+      (entry.rawInput as { name?: unknown } | undefined)?.name === request.name
+    ) {
+      toolCallId = entry.toolCallId;
+      break;
+    }
+  }
+  const pending: PendingSecret = { ...request, id, ...(toolCallId ? { toolCallId } : {}) };
+  return {
+    state: { ...state, secrets: [...(state.secrets ?? []), pending], nextId: id + 1 },
+    id,
+  };
+}
+
+/** A secret request was answered, declined, or dropped. */
+export function resolveSecretRequest(state: SessionState, id: number): SessionState {
+  if (!state.secrets?.some((s) => s.id === id)) return state;
+  const secrets = state.secrets.filter((s) => s.id !== id);
+  if (secrets.length) return { ...state, secrets };
+  const { secrets: _secrets, ...rest } = state;
+  return rest;
 }
 
 /** Fold one `session/update` into the state. Unknown kinds are ignored. */
@@ -747,6 +814,8 @@ export interface InboxItem {
   request?: PendingPermission;
   /** Whether the call's card is in the thread yet (agent86 announces it just before asking). */
   hasCard: boolean;
+  /** For a `secret` question being asked: the open request, once it has arrived. */
+  secret?: PendingSecret;
 }
 
 /**
@@ -761,6 +830,12 @@ export function inboxItems(state: SessionState): InboxItem[] {
   for (const entry of state.entries) if (entry.kind === "tool") tools.set(entry.toolCallId, entry);
   const items: InboxItem[] = [];
   const add = (question: Question, position: InboxItem["position"]) => {
+    if (question.kind === "secret") {
+      // agent86 names no call for a secret; the one being asked is the open request, if any.
+      const secret = position === "asking" ? state.secrets?.[0] : undefined;
+      items.push({ question, position, ...(secret ? { secret } : {}), hasCard: false });
+      return;
+    }
     const tool = question.call ? tools.get(question.call) : undefined;
     const request = question.call
       ? state.permissions.find((p) => p.toolCallId === question.call)
@@ -778,6 +853,7 @@ export function phase(state: SessionState): string | undefined {
   if (!state.turn.running) return undefined;
   if (state.turn.cancelRequested) return "Cancelling…";
   if (state.permissions.length > 0) return "Waiting for your approval";
+  if (state.secrets?.length) return "Waiting for a secret";
   for (let i = state.entries.length - 1; i >= 0; i--) {
     const entry = state.entries[i]!;
     if (entry.kind === "tool" && (entry.status === "pending" || entry.status === "in_progress")) {

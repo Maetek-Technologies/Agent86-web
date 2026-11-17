@@ -150,11 +150,17 @@ export function ThreadHeader({
   client,
   busy,
   onCost,
+  panel,
+  onPanel,
 }: {
   session: AgentSession;
   client: Agent86Client;
   busy: boolean;
   onCost: () => void;
+  /** The side panel open now, if any. */
+  panel?: "memory" | "secrets" | undefined;
+  /** Open or close the memory or secrets panel (shown only when agent86 offers it). */
+  onPanel?: (kind: "memory" | "secrets") => void;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
   const logs = useSyncExternalStore(client.subscribeLogs, client.getLogs);
@@ -244,6 +250,28 @@ export function ThreadHeader({
           >
             $ cost
           </button>
+          {onPanel && client.features.memory && (
+            <button
+              type="button"
+              aria-pressed={panel === "memory"}
+              onClick={() => onPanel("memory")}
+              title="What agent86 has learned: list, pin, and forget"
+              className={`rounded px-1.5 py-0.5 hover:bg-panel-2 hover:text-text ${panel === "memory" ? "bg-panel-2 text-text" : "text-muted"}`}
+            >
+              memory
+            </button>
+          )}
+          {onPanel && client.features.secrets && (
+            <button
+              type="button"
+              aria-pressed={panel === "secrets"}
+              onClick={() => onPanel("secrets")}
+              title="Secrets for this session: the model sees only their names"
+              className={`rounded px-1.5 py-0.5 hover:bg-panel-2 hover:text-text ${panel === "secrets" ? "bg-panel-2 text-text" : "text-muted"}`}
+            >
+              secrets
+            </button>
+          )}
           <button
             type="button"
             aria-expanded={showLogs}

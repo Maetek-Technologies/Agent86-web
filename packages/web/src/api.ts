@@ -63,6 +63,36 @@ export function signIn(): Promise<void> {
   return signingIn;
 }
 
+/**
+ * Sign in again with a new launch token in the address bar (agent86-web restarted on the same
+ * port and its new link was opened in this tab), without reloading the page.
+ */
+export function signInAgain(): Promise<void> {
+  signingIn = undefined;
+  return signIn();
+}
+
+/** What the signed-in app does with a new launch link; unset until it is mounted. */
+let relink: (() => Promise<void>) | undefined;
+
+/** The signed-in app takes new launch links itself (see `newLaunchLink`). */
+export function onNewLaunchLink(handler: (() => Promise<void>) | undefined): void {
+  relink = handler;
+}
+
+/**
+ * A new launch link was opened in this tab. The signed-in app signs in again in place, so each open
+ * thread keeps the conversation it shows and reconnects (with `session/resume` when agent86 offers
+ * it, so nothing is replayed). Before the app is signed in, or if that fails, the page reloads.
+ */
+export function newLaunchLink(): void {
+  if (!relink) {
+    window.location.reload();
+    return;
+  }
+  relink().catch(() => window.location.reload());
+}
+
 export async function getInfo(): Promise<BridgeInfo> {
   const res = await fetch("/api/info", { credentials: "same-origin" });
   if (!res.ok) throw await failure(res);

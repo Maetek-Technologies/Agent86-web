@@ -1,10 +1,16 @@
 import type { InboxItem } from "@agent86-web/acp-client";
+import { focusSecretPrompt } from "../secrets/SecretPrompt.tsx";
 import { showCard } from "../tools/cardLink.ts";
 
-/** What a question is about: the tool, or for a specialty the project specialist to approve. */
+/**
+ * What a question is about: the tool; for a specialty, the project specialist to approve; for a
+ * limit, the limit; for a secret, its name once the request has arrived (the question has none).
+ */
 function subjectOf(item: InboxItem): string {
   const q = item.question;
   if (q.kind === "specialty") return `run the project specialist ${q.subject ?? "(unnamed)"}`;
+  if (q.kind === "limit") return `raise the limit ${q.subject ?? ""}`.trim();
+  if (q.kind === "secret") return item.secret ? `a secret: ${item.secret.name}` : "a secret";
   return q.tool ?? "a tool call";
 }
 
@@ -68,7 +74,30 @@ export function Inbox({ items, className = "" }: { items: InboxItem[]; className
                     {q.card ? `${q.agent ?? "sub-agent"}'s card` : "its card"}
                   </button>
                 )}
+                {asking && q.kind === "secret" && item.secret?.toolCallId && (
+                  <button
+                    type="button"
+                    onClick={() => showCard(item.secret!.toolCallId!)}
+                    className="rounded px-1 text-accent hover:underline"
+                  >
+                    its card
+                  </button>
+                )}
                 {asking &&
+                  q.kind === "secret" &&
+                  (item.secret ? (
+                    <button
+                      type="button"
+                      onClick={focusSecretPrompt}
+                      className="rounded px-1 text-accent hover:underline"
+                    >
+                      enter it
+                    </button>
+                  ) : (
+                    <span className="text-muted">the request is on its way…</span>
+                  ))}
+                {asking &&
+                  q.kind !== "secret" &&
                   (item.request ? (
                     <button
                       type="button"

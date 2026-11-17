@@ -28,6 +28,14 @@ export function tokenAt(
   return undefined;
 }
 
+/**
+ * Whether a message is `/secret` followed by something other than `forget NAME`, which may be a
+ * secret's value (agent86 would store nothing, but the text would stay in the thread).
+ */
+export function typedSecret(text: string): boolean {
+  return /^\/secret\s+(?!forget(?:\s|$))\S/.test(text);
+}
+
 /** The files a prompt mentions, as links for agent86: each `@path` the user picked from the menu. */
 export function mentionedLinks(
   text: string,
@@ -58,12 +66,18 @@ export function PromptInput({
   disabled,
   commands = NO_COMMANDS,
   onSend,
+  onSecretTyped,
 }: {
   workspace: string;
   busy: boolean;
   disabled: boolean;
   commands?: AvailableCommand[];
   onSend: (text: string, links: FileLink[]) => void;
+  /**
+   * Set when agent86 takes secrets from this client (1.0.23): text after `/secret` (other than
+   * `forget NAME`) may be a value, so it is not sent or kept in the history; this is called instead.
+   */
+  onSecretTyped?: () => void;
 }) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
@@ -146,6 +160,13 @@ export function PromptInput({
   function send() {
     if (!canSend) return;
     const message = text.trim();
+    if (onSecretTyped && typedSecret(message)) {
+      picked.current = new Set();
+      setText("");
+      setCaret(0);
+      onSecretTyped();
+      return;
+    }
     onSend(message, mentionedLinks(message, picked.current, workspace));
     history.current = { entries: pushHistory(workspace, message), index: -1, draft: "" };
     picked.current = new Set();

@@ -27,7 +27,34 @@ import {
   type Agent86Event,
 } from "./agent86-events.ts";
 import {
+  advertisesMemory,
+  advertisesSecrets,
+  MEMORY_FORGET_METHOD,
+  MEMORY_LIST_METHOD,
+  MEMORY_PIN_METHOD,
+  parseMemoryEntry,
+  parseMemoryPage,
+  parseSecretForget,
+  parseSecretList,
+  parseSecretRequest,
+  parseSecretSet,
+  SECRET_FORGET_METHOD,
+  SECRET_LIST_METHOD,
+  SECRET_REQUEST_METHOD,
+  SECRET_SET_METHOD,
+  type MemoryEntry,
+  type MemoryKind,
+  type MemoryPage,
+  type MemoryQuery,
+  type SecretAnswer,
+  type SecretForgetResult,
+  type SecretList,
+  type SecretRequest,
+  type SecretSetResult,
+} from "./agent86-extensions.ts";
+import {
   addNotice,
+  addSecretRequest,
   applyEvent,
   addPermission,
   applyUpdate,
@@ -39,6 +66,7 @@ import {
   markClosed,
   requestCancel,
   resolvePermission,
+  resolveSecretRequest,
   startTurn,
   toolDiffs,
   toolLocations,
@@ -92,6 +120,30 @@ export interface FileLink {
   uri: string;
 }
 
+/**
+ * agent86 refused one of its extension requests (memory, secrets): -32002 an unknown session or
+ * id, -32600 memory off or a turn running, -32602 bad params. The message never holds a secret.
+ */
+export class Agent86RequestError extends Error {
+  constructor(
+    message: string,
+    readonly code: number | undefined,
+  ) {
+    super(message);
+    this.name = "Agent86RequestError";
+  }
+}
+
+function errorCode(error: unknown): number | undefined {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code: unknown }).code;
+    return typeof code === "number" ? code : undefined;
+  }
+  return undefined;
+}
+
+const DECLINED: SecretAnswer = { outcome: "declined" };
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "object" && error !== null && "message" in error) {
@@ -106,6 +158,8 @@ export class AgentSession {
   private readonly listeners = new Set<() => void>();
   /** How to answer each pending permission request, by its local id. */
   private readonly answers = new Map<number, (response: RequestPermissionResponse) => void>();
+  /** How to answer each pending secret request, by its local id. */
+  private readonly secretAnswers = new Map<number, (answer: SecretAnswer) => void>();
 
   constructor(
     private readonly connection: ClientConnection,
@@ -113,7 +167,7 @@ export class AgentSession {
     cwd: string,
     configOptions: SessionState["configOptions"],
     private readonly now: Clock,
-    private readonly features: Agent86Features = { state: false, resume: false },
+    private readonly features: Agent86Features = NO_FEATURES,
     /** A transcript to carry on from (a session reopened with `session/resume`). */
     from?: SessionState,
   ) {
@@ -230,12 +284,127 @@ export class AgentSession {
     this.set(resolvePermission(this.state, permissionId, "cancelled"));
   }
 
+  /** Decline every open permission and secret request (cancel, turn end, connection gone). */
   private cancelPermissions(): void {
     for (const request of this.state.permissions) {
       this.answers.get(request.id)?.({ outcome: { outcome: "cancelled" } });
       this.answers.delete(request.id);
       this.set(resolvePermission(this.state, request.id, "cancelled"));
     }
+    for (const request of this.state.secrets ?? []) this.declineSecret(request.id);
+  }
+
+  /**
+   * @internal Called by the client for this session's `secret/request` (agent86 1.0.23). Resolves
+   * with the user's answer, or declined when the turn is cancelled, ends, or the connection goes.
+   */
+  requestSecret(request: SecretRequest): Promise<SecretAnswer> {
+    if (!this.state.turn.running || this.state.turn.cancelRequested || this.state.closed) {
+      return Promise.resolve(DECLINED);
+    }
+    const { state, id } = addSecretRequest(this.state, {
+      name: request.name,
+      reason: request.reason,
+      replacing: request.replacing,
+      canRemember: request.canRemember,
+      remembered: request.remembered,
+    });
+    return new Promise((resolve) => {
+      this.secretAnswers.set(id, resolve);
+      this.set(state);
+    });
+  }
+
+  /**
+   * Answer a secret request with what the user typed. The value goes to agent86 and nowhere else:
+   * it is not kept in the session state. An empty value declines.
+   */
+  answerSecret(id: number, value: string, remember: boolean): void {
+    const answer = this.secretAnswers.get(id);
+    if (!answer) return;
+    this.secretAnswers.delete(id);
+    this.set(resolveSecretRequest(this.state, id));
+    answer(value ? { outcome: "entered", value, remember } : DECLINED);
+  }
+
+  /** Decline a secret request; the model is told. */
+  declineSecret(id: number): void {
+    const answer = this.secretAnswers.get(id);
+    this.secretAnswers.delete(id);
+    this.set(resolveSecretRequest(this.state, id));
+    answer?.(DECLINED);
+  }
+
+  /**
+   * One of agent86's extension requests. agent86 refuses them while a turn runs, so this does too,
+   * before asking; a quiet command (such as `/rename`) counts as a turn.
+   */
+  private async extension(method: string, params: Record<string, unknown>): Promise<unknown> {
+    if (this.state.closed)
+      throw new Agent86RequestError("The connection to agent86 is closed.", undefined);
+    if (this.state.turn.running || this.quiet)
+      throw new Agent86RequestError("agent86 is busy with a turn; try again when it ends.", -32600);
+    try {
+      return await this.connection.agent.request(method, { sessionId: this.id, ...params });
+    } catch (error) {
+      throw new Agent86RequestError(errorMessage(error), errorCode(error));
+    }
+  }
+
+  private need(feature: "memory" | "secrets"): void {
+    if (!this.features[feature])
+      throw new Agent86RequestError(
+        `This agent86 does not offer its ${feature} to clients.`,
+        undefined,
+      );
+  }
+
+  /** One page of agent86's memory, newest first (agent86 1.0.22). */
+  async listMemory(query: MemoryQuery = {}): Promise<MemoryPage> {
+    this.need("memory");
+    const params: Record<string, unknown> = { kind: query.kind ?? "fact" };
+    if (query.limit !== undefined) params.limit = query.limit;
+    if (query.cursor !== undefined) params.cursor = query.cursor;
+    if (query.pinned) params.pinned = true;
+    return parseMemoryPage(await this.extension(MEMORY_LIST_METHOD, params));
+  }
+
+  /** Pin (or with `pinned` false, unpin) a fact or episode, so pruning never removes it. */
+  async pinMemory(kind: MemoryKind, id: number, pinned = true): Promise<MemoryEntry> {
+    this.need("memory");
+    const result = (await this.extension(MEMORY_PIN_METHOD, { kind, id, pinned })) as {
+      entry?: unknown;
+    } | null;
+    const entry = parseMemoryEntry(result?.entry);
+    if (!entry) throw new Agent86RequestError("agent86 sent back no entry.", undefined);
+    return entry;
+  }
+
+  /** Delete a fact or episode. */
+  async forgetMemory(kind: MemoryKind, id: number): Promise<void> {
+    this.need("memory");
+    await this.extension(MEMORY_FORGET_METHOD, { kind, id });
+  }
+
+  /** The names of the secrets this session holds, never their values (agent86 1.0.23). */
+  async listSecrets(): Promise<SecretList> {
+    this.need("secrets");
+    return parseSecretList(await this.extension(SECRET_LIST_METHOD, {}));
+  }
+
+  /**
+   * Hand agent86 a secret for this session, and with `remember` keep it in the keyring for the
+   * project. Setting a remembered name without `remember` takes it out of the keyring.
+   */
+  async setSecret(name: string, value: string, remember = false): Promise<SecretSetResult> {
+    this.need("secrets");
+    return parseSecretSet(await this.extension(SECRET_SET_METHOD, { name, value, remember }), name);
+  }
+
+  /** Drop a secret from the session and the keyring. */
+  async forgetSecret(name: string): Promise<SecretForgetResult> {
+    this.need("secrets");
+    return parseSecretForget(await this.extension(SECRET_FORGET_METHOD, { name }));
   }
 
   /** Whether agent86 offers the slash command `name` (without the slash) in this session. */
@@ -362,6 +531,13 @@ export interface Agent86ClientOptions {
 
 /** What this agent86 offers beyond the core protocol, from its `initialize` answer. */
 export interface Agent86Features {
+  /** agent86's memory (`com.maetek.agent86/memory`, version 1; agent86 1.0.22). */
+  memory: boolean;
+  /**
+   * agent86's secrets (`com.maetek.agent86/secrets`, version 1; agent86 1.0.23): set, list, and
+   * forget, and `secret/request` (this client claims a masked entry).
+   */
+  secrets: boolean;
   /**
    * agent86's state events (`com.maetek.agent86/state`, version 1), with, from 1.0.21, the
    * questions queue and who asks on a sub-agent's permission request.
@@ -370,6 +546,8 @@ export interface Agent86Features {
   /** `session/resume` (`sessionCapabilities.resume`, agent86 1.0.21): reopen without replay. */
   resume: boolean;
 }
+
+const NO_FEATURES: Agent86Features = { state: false, resume: false, memory: false, secrets: false };
 
 /** How to wait out a turn that a page which has since gone started. */
 export interface ReopenOptions {
@@ -417,6 +595,8 @@ export class Agent86Client {
     this.features = {
       state: advertisesState(init.agentCapabilities),
       resume: advertisesResume(init.agentCapabilities),
+      memory: advertisesMemory(init.agentCapabilities),
+      secrets: advertisesSecrets(init.agentCapabilities),
     };
     void connection.closed.then(
       () => this.closeAll("The connection to agent86 closed."),
@@ -454,6 +634,21 @@ export class Agent86Client {
         ({ params }) => {
           if (!params || !self?.features.state) return;
           self.sessions.get(params.sessionId)?.handleEvent(params.event);
+        },
+      )
+      .onRequest(
+        SECRET_REQUEST_METHOD,
+        // Lenient: params this client cannot read are declined, never an error.
+        (params: unknown) => parseSecretRequest(params) ?? null,
+        async ({ params }): Promise<SecretAnswer> => {
+          if (!params || !self?.features.secrets) return DECLINED;
+          const session = self.sessions.get(params.sessionId);
+          if (!session) return DECLINED;
+          try {
+            return await session.requestSecret(params);
+          } catch {
+            return DECLINED;
+          }
         },
       )
       .onRequest(methods.client.session.requestPermission, ({ params }) => {

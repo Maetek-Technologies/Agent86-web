@@ -14,6 +14,9 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
+import { MemoryPanel } from "../memory/MemoryPanel.tsx";
+import { SecretPrompt } from "../secrets/SecretPrompt.tsx";
+import { SecretsPanel } from "../secrets/SecretsPanel.tsx";
 import { Inbox } from "./Inbox.tsx";
 import { PhaseLine } from "./PhaseLine.tsx";
 import { PromptInput } from "./PromptInput.tsx";
@@ -64,8 +67,15 @@ export function Thread({
   const scroller = useRef<HTMLDivElement>(null);
   useStickToBottom(scroller, state.entries);
   const pending = state.permissions[0];
+  // The model asking for a secret (agent86 1.0.23), answered in a masked entry over the thread.
+  const secretAsk = state.secrets?.[0];
   // The approval inbox (agent86 1.0.21's questions queue), when anything is asked or waiting.
   const inbox = useMemo(() => inboxItems(state), [state]);
+  // The memory or secrets panel (agent86 1.0.22 and 1.0.23), when the user opens one.
+  const [panel, setPanel] = useState<{ kind: "memory" | "secrets"; note?: string } | undefined>(
+    undefined,
+  );
+  const { memory, secrets } = client.features;
 
   // Keys, as in the terminal: Esc rejects a waiting approval, else interrupts the turn; a number
   // picks an approval option (when not typing); Ctrl+O expands every tool card.
@@ -76,6 +86,8 @@ export function Thread({
       const target = event.target as HTMLElement | null;
       const editing = !!target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT");
       if (event.key === "Escape") {
+        // The secret prompt answers its own Esc (it declines).
+        if (session.getState().secrets?.length) return;
         if (pending) {
           event.preventDefault();
           session.reject(pending.id);
@@ -119,8 +131,13 @@ export function Thread({
 
   // The tab title says when agent86 is waiting on you.
   useEffect(() => {
-    if (active) document.title = pending ? "(!) Approval needed · agent86 web" : "agent86 web";
-  }, [pending, active]);
+    if (active)
+      document.title = pending
+        ? "(!) Approval needed · agent86 web"
+        : secretAsk
+          ? "(!) Secret requested · agent86 web"
+          : "agent86 web";
+  }, [pending, secretAsk, active]);
 
   const send = (text: string, links: FileLink[]) => {
     onPrompt?.(text);
@@ -156,32 +173,61 @@ export function Thread({
         client={client}
         busy={state.turn.running}
         onCost={() => send("/cost", [])}
+        panel={panel?.kind}
+        onPanel={(kind) => setPanel((open) => (open?.kind === kind ? undefined : { kind }))}
       />
       <TrustBanner client={client} workspace={state.cwd} onTrusted={() => onTrusted?.()} />
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto" data-testid="transcript">
-          <div className="mx-auto w-full max-w-3xl px-4 py-6">
-            {state.entries.length === 0 ? (
-              <div className="py-16 text-center text-muted">
-                <p className="text-lg">What should agent86 do?</p>
-                <p className="mt-2 text-sm">
-                  It works in <span className="font-mono">{state.cwd}</span>. Try a question, or a
-                  command such as <span className="font-mono">/cost</span> or{" "}
-                  <span className="font-mono">/tools</span>.
-                </p>
-              </div>
-            ) : (
-              <ThreadContext.Provider value={context}>
-                <Transcript entries={state.entries} />
-              </ThreadContext.Provider>
+        {/* The secret prompt covers the conversation only: Stop and the inbox stay in reach. */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto" data-testid="transcript">
+            <div className="mx-auto w-full max-w-3xl px-4 py-6">
+              {state.entries.length === 0 ? (
+                <div className="py-16 text-center text-muted">
+                  <p className="text-lg">What should agent86 do?</p>
+                  <p className="mt-2 text-sm">
+                    It works in <span className="font-mono">{state.cwd}</span>. Try a question, or a
+                    command such as <span className="font-mono">/cost</span> or{" "}
+                    <span className="font-mono">/tools</span>.
+                  </p>
+                </div>
+              ) : (
+                <ThreadContext.Provider value={context}>
+                  <Transcript entries={state.entries} />
+                </ThreadContext.Provider>
+              )}
+            </div>
+          </div>
+          {secretAsk && (
+            <SecretPrompt
+              key={secretAsk.id}
+              request={secretAsk}
+              onEnter={(value, remember) => session.answerSecret(secretAsk.id, value, remember)}
+              onDecline={() => session.declineSecret(secretAsk.id)}
+            />
+          )}
+        </div>
+        {(inbox.length > 0 || panel) && (
+          <div className="flex max-h-[45%] min-h-0 shrink-0 flex-col overflow-y-auto border-t border-border lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l">
+            {inbox.length > 0 && <Inbox items={inbox} />}
+            {panel?.kind === "memory" && memory && (
+              <MemoryPanel
+                session={session}
+                busy={busy}
+                onClose={() => setPanel(undefined)}
+                className={`min-h-0 flex-1 ${inbox.length ? "border-t border-border" : ""}`}
+              />
+            )}
+            {panel?.kind === "secrets" && secrets && (
+              <SecretsPanel
+                session={session}
+                busy={busy}
+                {...(panel.note ? { note: panel.note } : {})}
+                onClose={() => setPanel(undefined)}
+                className={inbox.length ? "border-t border-border" : ""}
+              />
             )}
           </div>
-        </div>
-        {inbox.length > 0 && (
-          <Inbox
-            items={inbox}
-            className="max-h-48 overflow-y-auto border-t border-border lg:max-h-none lg:w-72 lg:border-t-0 lg:border-l"
-          />
         )}
       </div>
       <div className="border-t border-border bg-bg">
@@ -212,6 +258,15 @@ export function Thread({
             disabled={!!state.closed}
             commands={state.commands}
             onSend={send}
+            {...(secrets
+              ? {
+                  onSecretTyped: () =>
+                    setPanel({
+                      kind: "secrets",
+                      note: "Nothing was sent. Enter secrets here, not in the message box: what is typed there stays in the thread and its history.",
+                    }),
+                }
+              : {})}
           />
         </div>
       </div>
