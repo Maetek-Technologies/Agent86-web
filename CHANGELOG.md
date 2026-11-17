@@ -2,7 +2,7 @@
 
 All notable changes to agent86-web. Release notes for each version are in [docs/releases/](docs/releases/).
 
-## 0.4.2 (unreleased)
+## 0.4.2 (2026-11-16)
 
 agent86 1.0.22's memory and 1.0.23's secrets over ACP, each detected from what agent86 advertises, so an older agent86 looks as before. See [docs/releases/v0.4.2.md](docs/releases/v0.4.2.md) and M10 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m10-agent86-web-042).
 
