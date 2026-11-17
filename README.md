@@ -4,7 +4,7 @@ A browser interface for [agent86](https://github.com/Maetek-Technologies/agent86
 
 agent86-web gives you agent86's conversation, tool calls, approvals, and saved sessions in a browser tab. The agent itself does not change. agent86 still runs on your machine, with your config, keys, sandbox, memory, and sessions. The website is a different way to drive it.
 
-> **Status: v0.4.1 is on npm (`npx agent86-web`).** All of phase 1 is built, reviewed, and packaged, plus the 0.2.0 shell polish, 0.3.0's lasting settings, 0.4.0's support for agent86 1.0.19 and 1.0.20 over ACP, and 0.4.1's for agent86 1.0.21 (who asks for an approval, the approval inbox, `session/resume`, and threads that survive agent86 stopping mid-turn). User documentation: [packages/bridge/README.md](packages/bridge/README.md). The plan: [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
+> **Status: v0.4.1 is on npm (`npx agent86-web`).** All of phase 1 is built, reviewed, and packaged, plus the 0.2.0 shell polish, 0.3.0's lasting settings, 0.4.0's support for agent86 1.0.19 and 1.0.20 over ACP, 0.4.1's for agent86 1.0.21 (who asks for an approval, the approval inbox, `session/resume`, and threads that survive agent86 stopping mid-turn), and, built for 0.4.2 (not yet published), agent86 1.0.22's memory and 1.0.23's secrets (a memory panel, a secrets panel, and a masked prompt when the model asks for a secret). User documentation: [packages/bridge/README.md](packages/bridge/README.md). The plan: [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
 
 ## How it will work
 

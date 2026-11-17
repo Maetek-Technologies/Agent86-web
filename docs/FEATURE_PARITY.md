@@ -39,7 +39,7 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 | Command preview for `run_command` / `python_exec` | permission request content | Highlighted command block | ✅ | M3 |
 | Warning for writes into agent86's own config or skills | permission request content | Shown prominently above the detail | ✅ | M3 |
 | Which sub-agent asks (the terminal's sub-agent approval panel) | `_meta["com.maetek.agent86/subagent"]` on the request (agent86 1.0.21, state extension) | The sub-agent's name with a link to its delegation card, its git worktree and branch, and its spend beside the turn's and the cap, in the approval | ✅ (with 1.0.21) | M9 |
-| Parallel sub-agents' approvals, one at a time in arrival order | agent86's `questions` events (1.0.21, state extension) | An approval inbox beside the thread: the question asked and those waiting, with a count and card links; answered one at a time on the card, emptied on cancel | ✅ (with 1.0.21) | M9 |
+| Parallel sub-agents' approvals, one at a time in arrival order | agent86's `questions` events (1.0.21, state extension) | An approval inbox beside the thread: the question asked and those waiting, with a count and card links; answered one at a time on the card, emptied on cancel. Since 0.4.2 a secret the model asks for is listed too (by name once its request arrives, with "enter it"), and a limit question by the limit | ✅ (with 1.0.21) | M9, M10 |
 | Approval mode `ask`/`auto`/`deny`, Shift+Tab, `/mode` | `session/set_config_option`, `config_option_update` | A mode selector in the thread header | ✅ | M4 |
 | "Always allow" | not offered by agent86 | — | ⛔ | — |
 
@@ -63,7 +63,7 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 | `/clear` | — | "New thread" in the same workspace | 🟡 New session, not cleared in place | M4 |
 | Several conversations at once | one turn per connection | One agent86 process per thread, shown in tabs (a dot shows working or waiting for approval) | ✅ | M4 |
 | Surviving a reload | `session/load` | Open threads are remembered in the browser; a reload reattaches to the same agent86 and reopens each session, waiting for a running turn to end first | ✅ | M4 |
-| Reconnecting without a replay | `session/resume` (agent86 1.0.21, `sessionCapabilities.resume`) | When the tab still has the whole conversation (a dropped connection while idle, a new agent86 after trust or a crash), the session is resumed and nothing is replayed; `session/load` otherwise | ✅ (with 1.0.21) | M9 |
+| Reconnecting without a replay | `session/resume` (agent86 1.0.21, `sessionCapabilities.resume`) | When the tab still has the whole conversation (a dropped connection while idle, a new agent86 after trust or a crash, and since 0.4.2 agent86-web itself restarted, its new link opened in the same tab), the session is resumed and nothing is replayed; `session/load` otherwise | ✅ (with 1.0.21) | M9, M10 |
 | A session cut off mid-turn (`agent86 --resume` goes on from the finished steps) | saved after every step (agent86 1.0.21) | After agent86 exits mid-turn, the thread reconnects with the finished steps, marks the turn interrupted, and offers Continue (a short message; continuing the turn itself is planned for agent86 1.0.24) | 🟡 (Continue sends a message) | M9 |
 
 ## Information commands
@@ -73,6 +73,7 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 | `/cost` | slash command; `usage_update` (agent86 1.0.20) | Command, plus a "cost" button in the header; the session's cost live in the header with agent86 1.0.20 ("cost n/a" when unpriced) | ✅ (live with 1.0.20) |
 | `/tools` | slash command | Command | ✅ |
 | `/help` | — | Local help panel listing the available commands | ✅ |
+| `agent86 memory list`, `pin`, `unpin`, `forget` (facts and episodes) | `_com.maetek.agent86/memory/list`, `pin`, `forget` (agent86 1.0.22, advertised in `initialize`) | A memory panel from the thread header: facts and episodes, newest first, 20 a page with "Load more", a pinned-only filter, pin and unpin, forget with a confirmation; it waits while a turn runs | ✅ (with 1.0.22) | M10 |
 | `/skills`, `/memory`, `/limits` | not in agent86's ACP set | — | ⛔ (wishlist) |
 | `/update`, update notice | not over ACP | The bridge checks npm daily for newer agent86 and agent86-web releases; the header and About show a notice with the install command | ✅ M5 (installing is left to you) |
 | `/exit` | — | Close the tab or thread. ⏻ Quit stops agent86-web | ✅ (Quit: M6) |
@@ -95,7 +96,8 @@ Keep this table current. A behavior difference that is not listed here is a bug.
 
 | Terminal feature | ACP | Web UI | Status |
 |---|---|---|---|
-| `request_secret` masked prompt, `/secret NAME` | not offered (ACP forbids forms for secrets) | Explains how to remember the secret for the project at the terminal. Remembered secrets load automatically. | ⛔ ([Q3](OPEN_QUESTIONS.md#q3-secrets)) |
+| `request_secret` masked prompt | `_com.maetek.agent86/secret/request` (agent86 1.0.23, to a client that claims a masked entry; agent86-web does) | A masked prompt over the conversation with the model's reason, a note when it replaces a value, and "remember for this project" (pre-checked when remembered, only with a keyring); Decline, Esc, ✕, Stop, and the turn ending all decline. The value goes straight to agent86 and is kept nowhere in the page | ✅ (with 1.0.23); before 1.0.23 ⛔ ([Q3](OPEN_QUESTIONS.md#q3-secrets)) | M10 |
+| `/secret NAME` (enter one, remember it for the project) | `_com.maetek.agent86/secret/set`, `list`, `forget` (agent86 1.0.23) | A secrets panel from the thread header: names with a "remembered" badge, a masked entry with remember (only with a keyring), forget with a confirmation, and agent86's warnings. `/secret <text>` typed in the message box is not sent (it would stay in the thread); the panel opens instead. Before 1.0.23: explains how to remember the secret at the terminal; remembered secrets load automatically | ✅ (with 1.0.23) | M10 |
 | `/secret` (list names) | slash command | Command | ✅ |
 | Project trust question | never asked over ACP | A banner, then a review dialog showing the file. The bridge records trust by hash and passes `--trust-project` ([ADR 0004](adr/0004-project-trust-from-the-browser.md)). | ✅ M4. Browser trust is not seen by the terminal. |
 | `/config mcp` | none | Terminal only | ⛔ |

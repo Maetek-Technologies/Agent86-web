@@ -2,6 +2,17 @@
 
 All notable changes to agent86-web. Release notes for each version are in [docs/releases/](docs/releases/).
 
+## 0.4.2 (unreleased)
+
+agent86 1.0.22's memory and 1.0.23's secrets over ACP, each detected from what agent86 advertises, so an older agent86 looks as before. See [docs/releases/v0.4.2.md](docs/releases/v0.4.2.md) and M10 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m10-agent86-web-042).
+
+- A memory panel (agent86 1.0.22): facts and episodes, a page at a time, a pinned-only filter, pin and unpin, and forget with a confirmation.
+- A secrets panel (agent86 1.0.23): the names held, a "remembered" badge, a masked entry with remember-for-this-project (when there is a keyring), forget, and agent86's warnings.
+- A masked prompt when the model asks for a secret, with its reason; anything but Enter declines. The approval inbox lists it, and lists a limit question by its limit.
+- `/secret <text>` in the message box is kept out of the thread when agent86 takes secrets from agent86-web; the secrets panel opens instead.
+- A new launch link opened in a tab that is still open signs it in again without a reload, so a restarted agent86-web resumes the open threads instead of replaying them.
+- The bridge: the six memory and secret requests allowed, the masked-entry claim passed to agent86, a secret request with no tab declined, and `AGENT86_WEB_TRANSCRIPT=<file>` to record relayed messages with secret values hidden.
+
 ## 0.4.1 (2026-11-16)
 
 agent86 1.0.21's ACP additions, each detected from what agent86 advertises or sends, so an older agent86 looks and reconnects as before. See [docs/releases/v0.4.1.md](docs/releases/v0.4.1.md) and M9 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m9-agent86-web-041).

@@ -1,6 +1,6 @@
 {
   "name": "agent86-web",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "A browser interface for agent86. Runs a local bridge between your browser and `agent86 acp`.",
   "license": "MIT",
   "author": "Maetek Technologies",

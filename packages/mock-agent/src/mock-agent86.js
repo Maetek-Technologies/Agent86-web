@@ -17,6 +17,16 @@
 // after every step. The prompt "parallel writers" delegates to two `writer` sub-agents whose
 // approvals queue up; "crash" runs a read_file step, then exits partway through the next one;
 // "exit after replying" answers, then exits while idle.
+//
+// As 1.0.22: agent86's memory (list, pin, forget), in a JSON file beside the session store
+// (MOCK_AGENT86_DB + ".memory.json", so a test can seed it); "remember that <x>" stores a fact and
+// every finished turn an episode. MOCK_AGENT86_MEMORY_OFF=1 answers as `[memory] enabled = false`.
+//
+// As 1.0.23: agent86's secrets (set, list, forget), held per session, and remembered in a stand-in
+// keyring beside the session store (".keyring.json", per folder; MOCK_AGENT86_KEYRING=off for none).
+// To a client that claims a masked entry, "ask for a secret" sends `secret/request` for STRIPE_KEY,
+// and "use the secret" runs a command whose output shows the value as ${secret:STRIPE_KEY}. Like
+// agent86, no reply, error, or recorded line ever holds a value.
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,6 +54,14 @@ const v1020 = since(20);
  * session saved after every step, so a turn cut off partway keeps the steps it finished.
  */
 const v1021 = since(21);
+/** agent86 1.0.22: its memory, listed, pinned, and forgotten by the client. */
+const v1022 = since(22);
+/** agent86 1.0.23: secrets from the client, and `secret/request` to a client with a masked entry. */
+const v1023 = since(23);
+const MEMORY = "com.maetek.agent86/memory";
+const SECRETS = "com.maetek.agent86/secrets";
+const MEMORY_OFF = process.env.MOCK_AGENT86_MEMORY_OFF === "1";
+const KEYRING_OFF = process.env.MOCK_AGENT86_KEYRING === "off";
 const STATE = "com.maetek.agent86/state";
 /** Dollars per call for the priced model; `mock:cheap-model` has no price, as unknown models do. */
 const CALL_COST = 0.0125;
@@ -52,7 +70,7 @@ const COST_CAP = process.env.MOCK_AGENT86_COST_CAP
   ? Number(process.env.MOCK_AGENT86_COST_CAP)
   : null;
 /** What the client asked for in `initialize`. */
-const wants = { compaction: false, state: false };
+const wants = { compaction: false, state: false, secrets: false };
 const record = process.env.MOCK_AGENT86_RECORD;
 const args = process.argv.slice(2);
 
@@ -66,10 +84,18 @@ if (args.at(-1) !== "acp") {
   process.exit(2);
 }
 
-/** @param {string} method @param {unknown} params */
+/**
+ * Record a received message. A secret's value is written as `<hidden>`, as agent86's transcript
+ * writes it, so a test can check that nothing anywhere holds it.
+ * @param {string} method @param {unknown} params
+ */
 function remember(method, params) {
-  if (record)
-    appendFileSync(record, `${JSON.stringify({ method, params, args, cwd: process.cwd() })}\n`);
+  if (!record) return;
+  const safe =
+    params && typeof params === "object" && "value" in params
+      ? { ...params, value: "<hidden>" }
+      : params;
+  appendFileSync(record, `${JSON.stringify({ method, params: safe, args, cwd: process.cwd() })}\n`);
 }
 
 // agent86 writes its notes to stderr; the bridge shows them in the logs drawer.
@@ -158,6 +184,105 @@ function saveSession(id, change) {
   db[id] = saved;
   writeFileSync(DB, JSON.stringify(db, null, 2));
 }
+
+/**
+ * agent86's memory, as its database keeps it: facts and episodes, numbered separately.
+ * @typedef {{ kind: "fact" | "episode"; id: number; text: string; storedAt: string; pinnedAt?: string; category?: string; outcome?: string; sessionId?: string }} Memo
+ * @typedef {{ next: { fact: number; episode: number }; entries: Memo[] }} MemoryDb
+ */
+const MEMORY_DB = `${DB}.memory.json`;
+/** @returns {MemoryDb} */
+function loadMemory() {
+  try {
+    return JSON.parse(readFileSync(MEMORY_DB, "utf8"));
+  } catch {
+    return { next: { fact: 1, episode: 1 }, entries: [] };
+  }
+}
+/** @param {(db: MemoryDb) => void} change */
+function changeMemory(change) {
+  const db = loadMemory();
+  change(db);
+  writeFileSync(MEMORY_DB, JSON.stringify(db, null, 2));
+}
+/** @param {"fact" | "episode"} kind @param {{ text: string; category?: string; outcome?: string; sessionId?: string }} fields */
+function addMemo(kind, fields) {
+  changeMemory((db) => {
+    const id = db.next[kind]++;
+    db.entries.push({ kind, id, storedAt: new Date().toISOString(), ...fields });
+  });
+}
+/** An entry as the protocol sends it. @param {Memo} memo */
+const memoJson = (memo) => ({
+  kind: memo.kind,
+  id: memo.id,
+  text: hide(memo.text),
+  storedAt: memo.storedAt,
+  pinned: !!memo.pinnedAt,
+  ...(memo.pinnedAt ? { pinnedAt: memo.pinnedAt } : {}),
+  ...(memo.category ? { category: memo.category } : {}),
+  ...(memo.outcome !== undefined ? { outcome: hide(memo.outcome) } : {}),
+  ...(memo.sessionId ? { sessionId: memo.sessionId } : {}),
+});
+
+/** The stand-in OS keyring: remembered secrets by folder. */
+const KEYRING = `${DB}.keyring.json`;
+/** @returns {Record<string, Record<string, string>>} */
+function loadKeyring() {
+  try {
+    return JSON.parse(readFileSync(KEYRING, "utf8"));
+  } catch {
+    return {};
+  }
+}
+/** @param {(folder: Record<string, string>) => void} change */
+function changeKeyring(change) {
+  const ring = loadKeyring();
+  const folder = (ring[process.cwd()] ??= {});
+  change(folder);
+  writeFileSync(KEYRING, JSON.stringify(ring, null, 2));
+}
+/** Secrets each open session holds (this process only, as agent86's vault), name to value. */
+const vaults = /** @type {Map<string, Map<string, string>>} */ (new Map());
+/** @param {string} sessionId */
+function vault(sessionId) {
+  let held = vaults.get(sessionId);
+  if (!held) {
+    // A session opened in this folder has the secrets remembered for it.
+    held = new Map(KEYRING_OFF ? [] : Object.entries(loadKeyring()[process.cwd()] ?? {}));
+    vaults.set(sessionId, held);
+  }
+  return held;
+}
+/** Every value held by any session in this process, longest first. */
+function heldValues() {
+  /** @type {[string, string][]} */
+  const all = [];
+  for (const held of vaults.values()) for (const [name, value] of held) all.push([name, value]);
+  return all.sort((a, b) => b[1].length - a[1].length);
+}
+/** Text with every held value replaced by its placeholder, as agent86 does. @param {string} text */
+function hide(text) {
+  let out = text;
+  for (const [name, value] of heldValues()) out = out.split(value).join("${secret:" + name + "}");
+  return out;
+}
+const SECRET_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Sessions whose prompt turn is running; agent86 refuses other requests until it ends. */
+const running = new Set();
+/** @param {unknown} params @returns {string} */
+function openSession(params) {
+  const sessionId = /** @type {any} */ (params)?.sessionId;
+  if (typeof sessionId !== "string")
+    throw new RequestError(-32602, "Invalid params: sessionId must be a string");
+  if (!open.has(sessionId)) throw new RequestError(-32002, `Session not found: ${sessionId}`);
+  if (running.has(sessionId))
+    throw new RequestError(-32600, "A prompt turn is running; wait for its response");
+  return sessionId;
+}
+/** Waiters for a session's next `session/cancel`. */
+const cancelWaiters = /** @type {Map<string, (() => void)[]>} */ (new Map());
 
 const DEFAULT_MODEL = "mock:test-model";
 const MODELS = [DEFAULT_MODEL, "mock:cheap-model"];
@@ -347,6 +472,8 @@ const app = agent({ name: "mock-agent86" })
     const caps = /** @type {any} */ (params.clientCapabilities ?? {});
     wants.compaction = v1020 && !!caps.session?.compaction;
     wants.state = v1020 && !!caps._meta?.[STATE];
+    const claim = caps._meta?.[SECRETS];
+    wants.secrets = v1023 && (claim === true || (typeof claim === "object" && claim !== null));
     return {
       protocolVersion: 1,
       agentCapabilities: {
@@ -354,7 +481,15 @@ const app = agent({ name: "mock-agent86" })
         sessionCapabilities: { list: {}, ...(v1021 ? { resume: {} } : {}) },
         promptCapabilities: { image: false, audio: false, embeddedContext: false },
         mcpCapabilities: { http: true, sse: true },
-        ...(v1020 ? { _meta: { [STATE]: { version: 1 } } } : {}),
+        ...(v1020
+          ? {
+              _meta: {
+                [STATE]: { version: 1 },
+                ...(v1022 ? { [MEMORY]: { version: 1 } } : {}),
+                ...(v1023 ? { [SECRETS]: { version: 1 } } : {}),
+              },
+            }
+          : {}),
       },
       agentInfo: { name, title: name, version },
       authMethods: [],
@@ -469,10 +604,36 @@ const app = agent({ name: "mock-agent86" })
   .onNotification(methods.agent.session.cancel, ({ params }) => {
     remember("session/cancel", params);
     cancelled.add(params.sessionId);
+    for (const wake of cancelWaiters.get(params.sessionId) ?? []) wake();
+    cancelWaiters.delete(params.sessionId);
+  })
+  // As agent86 1.0.22 and 1.0.23: memory and secrets, for an open session, refused during a turn.
+  .onRequest("*", ({ method, params }) => {
+    const handler = EXTENSIONS[method];
+    if (!handler) throw new RequestError(-32601, `Method not found: ${method}`);
+    remember(method.replace("_com.maetek.agent86/", ""), params);
+    return handler(/** @type {any} */ (params ?? {}));
   })
   // Turns follow the same scripts as mock-openai.js, so a test reads the same against either.
   .onRequest(methods.agent.session.prompt, async ({ params, client }) => {
     remember("session/prompt", params);
+    running.add(params.sessionId);
+    try {
+      return await promptTurn(params, client);
+    } finally {
+      running.delete(params.sessionId);
+    }
+  });
+
+/**
+ * One prompt turn. Turns follow the same scripts as mock-openai.js, so a test reads the same
+ * against either.
+ * @param {import("@agentclientprotocol/sdk").PromptRequest} params
+ * @param {any} client
+ * @returns {Promise<import("@agentclientprotocol/sdk").PromptResponse>}
+ */
+async function promptTurn(params, client) {
+  {
     const { sessionId } = params;
     cancelled.delete(sessionId);
     const settings = open.get(sessionId) ?? { mode: "ask", model: DEFAULT_MODEL };
@@ -566,6 +727,9 @@ const app = agent({ name: "mock-agent86" })
     /** Save the turn, as agent86 does whether the turn finished or not. @param {"end_turn" | "cancelled"} stopReason */
     const finish = (stopReason) => {
       saveTurn();
+      // As agent86 1.0.22's database: an episode for each finished turn.
+      if (v1022 && stopReason === "end_turn" && !MEMORY_OFF)
+        addMemo("episode", { text, outcome: reply.slice(0, 200), sessionId });
       return { stopReason };
     };
 
@@ -575,6 +739,101 @@ const app = agent({ name: "mock-agent86" })
         sessionId,
         update: /** @type {any} */ (update),
       });
+
+    /**
+     * The model's `request_secret` for STRIPE_KEY, as agent86 1.0.23 sends it (checked against a
+     * recording): the call's card, a `questions` event of kind `secret` (no name, no call), the
+     * request to a client that claims a masked entry, then an empty queue and the result. A
+     * `session/cancel` while it waits declines it; agent86 does not wait for the client's answer.
+     * To a client without the claim, the tool does not exist.
+     */
+    const askForSecret = async () => {
+      const toolCallId = newCallId();
+      const args = { name: "STRIPE_KEY", reason: "to create the webhook" };
+      await say("agent_thought_chunk", "I will use request_secret.");
+      await modelCall(["request_secret"]);
+      await notify({
+        sessionUpdate: "tool_call",
+        toolCallId,
+        title: `request_secret(${JSON.stringify(args)})`,
+        name: "request_secret",
+        kind: "other",
+        status: "pending",
+        rawInput: args,
+      });
+      let result;
+      if (!wants.secrets) {
+        result = {
+          ok: false,
+          text: `Unknown tool 'request_secret'. Available: ${TOOLS.join(", ")}.`,
+        };
+      } else {
+        const held = vault(sessionId);
+        const kept = KEYRING_OFF ? {} : (loadKeyring()[process.cwd()] ?? {});
+        if (v1021 && wants.state)
+          await emit({ kind: "questions", asking: { kind: "secret" }, waiting: [] });
+        /** @type {Promise<"cancelled">} */
+        const cancel = new Promise((resolve) => {
+          const list = cancelWaiters.get(sessionId) ?? [];
+          list.push(() => resolve("cancelled"));
+          cancelWaiters.set(sessionId, list);
+        });
+        /** @type {any} */
+        const answer = await Promise.race([
+          client
+            .request("_com.maetek.agent86/secret/request", {
+              sessionId,
+              name: args.name,
+              reason: args.reason,
+              replacing: held.has(args.name),
+              canRemember: !KEYRING_OFF,
+              remembered: args.name in kept,
+            })
+            .catch(() => ({ outcome: "declined" })),
+          cancel,
+        ]);
+        remember("secret answer", answer === "cancelled" ? { outcome: "cancelled" } : answer);
+        if (v1021 && wants.state) await emit({ kind: "questions", asking: null, waiting: [] });
+        const entered =
+          answer !== "cancelled" &&
+          answer?.outcome === "entered" &&
+          typeof answer.value === "string" &&
+          answer.value.length > 0;
+        if (entered) {
+          held.set(args.name, answer.value);
+          if (!KEYRING_OFF)
+            changeKeyring((folder) => {
+              if (answer.remember === true) folder[args.name] = answer.value;
+              else delete folder[args.name];
+            });
+          const n = args.name;
+          result = {
+            ok: true,
+            text:
+              `The secret ${n} is set. Use it as the environment variable ${n} in run_command and python_exec ` +
+              `($${n} in sh, %${n}% in cmd.exe, os.environ["${n}"] in Python), and write ` +
+              "${secret:" +
+              n +
+              "} in write_file or edit_file to put it in a file. Its value is hidden from you; " +
+              "tool output shows ${secret:" +
+              n +
+              "} where it would appear.",
+          };
+        } else {
+          result = { ok: false, text: `The user declined to enter the secret ${args.name}.` };
+        }
+      }
+      await notify({
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: result.ok ? "completed" : "failed",
+        content: [{ type: "content", content: { type: "text", text: result.text } }],
+      });
+      if (cancelled.has(sessionId)) return finish("cancelled");
+      await modelCall([]);
+      await say("agent_message_chunk", `Tool result: ${result.text}`);
+      return finish("end_turn");
+    };
 
     /**
      * Two `writer` sub-agents delegated in one step, each asking to write a file, as agent86 1.0.21
@@ -788,6 +1047,67 @@ const app = agent({ name: "mock-agent86" })
       return finish("end_turn");
     };
 
+    if (v1023 && /^\/secret\s+(?!forget\b)\S/.test(text)) {
+      // As agent86 1.0.23: a value typed after /secret is never stored or repeated back.
+      await say(
+        "agent_message_chunk",
+        wants.secrets
+          ? "nothing was stored. Don't type a secret here: it would stay in this thread. Use this client's own secret entry, which hands it to agent86 without the thread seeing it; /secret forget NAME removes one."
+          : "nothing was stored. Don't type a secret here: it would stay in this thread. Enter it at a terminal in this project with agent86 and /secret NAME, choose to remember it, and sessions here will have it; /secret forget NAME removes one.",
+      );
+      return { stopReason: "end_turn" };
+    }
+    const fact = /\bremember that (.+)$/i.exec(text);
+    if (fact) {
+      const toolCallId = newCallId();
+      const factText = String(fact[1]).trim();
+      await modelCall(["remember"]);
+      await notify({
+        sessionUpdate: "tool_call",
+        toolCallId,
+        title: `remember(${JSON.stringify({ text: factText })})`,
+        name: "remember",
+        kind: "other",
+        status: "pending",
+        rawInput: { text: factText },
+      });
+      if (v1022 && !MEMORY_OFF) addMemo("fact", { text: factText, category: "fact" });
+      await notify({
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: "Remembered." } }],
+      });
+      await modelCall([]);
+      await say("agent_message_chunk", "Tool result: Remembered.");
+      return finish("end_turn");
+    }
+    if (v1023 && /\bask for a secret\b/i.test(text)) return askForSecret();
+    if (v1023 && /\buse the secret\b/i.test(text)) {
+      // The command's output would hold the value; agent86 shows its placeholder instead.
+      const toolCallId = newCallId();
+      const held = vault(sessionId).get("STRIPE_KEY");
+      await modelCall(["run_command"]);
+      await notify({
+        sessionUpdate: "tool_call",
+        toolCallId,
+        title: 'run_command({"command": "echo $STRIPE_KEY"})',
+        name: "run_command",
+        kind: "execute",
+        status: "pending",
+        rawInput: { command: "echo $STRIPE_KEY" },
+      });
+      const output = hide(`exit code: 0\nstdout:\n${held ?? ""}\n`);
+      await notify({
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: output } }],
+      });
+      await modelCall([]);
+      await say("agent_message_chunk", `Tool result: ${output}`);
+      return finish("end_turn");
+    }
     if (text === "/cost") {
       await say("agent_message_chunk", "steps 0  in 0  out 0 tok  cost n/a (unpriced model)");
       return { stopReason: "end_turn" };
@@ -1069,7 +1389,153 @@ const app = agent({ name: "mock-agent86" })
     // stopped while idle, so a test can see the thread reconnect.
     if (/\bexit after replying\b/i.test(text)) setTimeout(() => process.exit(0), 100);
     return finish(cancelled.has(sessionId) ? "cancelled" : "end_turn");
-  });
+  }
+}
+
+/** @param {any} params */
+function secretName(params) {
+  const name = params.name;
+  if (typeof name !== "string" || !SECRET_NAME.test(name))
+    throw new RequestError(
+      -32602,
+      "Invalid params: name must be a string matching ^[A-Za-z_][A-Za-z0-9_]*$",
+    );
+  return name;
+}
+
+/** @param {any} params */
+function memoryKind(params) {
+  const kind = params.kind ?? "fact";
+  if (kind !== "fact" && kind !== "episode")
+    throw new RequestError(-32602, 'Invalid params: kind must be "fact" or "episode"');
+  return /** @type {"fact" | "episode"} */ (kind);
+}
+
+/** @param {any} params */
+function memoryId(params) {
+  if (!Number.isInteger(params.id))
+    throw new RequestError(-32602, "Invalid params: id must be an integer");
+  return /** @type {number} */ (params.id);
+}
+
+/** @param {any} params */
+function memoryOpen(params) {
+  const sessionId = openSession(params);
+  if (MEMORY_OFF)
+    throw new RequestError(-32600, "Memory is off for this session ([memory] enabled = false)");
+  return sessionId;
+}
+
+/** The extension requests, by method, each only from the version that added it. */
+const EXTENSIONS = /** @type {Record<string, (params: any) => unknown>} */ ({
+  ...(v1022
+    ? {
+        "_com.maetek.agent86/memory/list": (params) => {
+          memoryOpen(params);
+          const kind = memoryKind(params);
+          const limit = params.limit ?? 50;
+          if (!Number.isInteger(limit) || limit < 1 || limit > 200)
+            throw new RequestError(
+              -32602,
+              "Invalid params: limit must be an integer from 1 to 200",
+            );
+          const offset = params.cursor == null ? 0 : Number(params.cursor);
+          if (!Number.isInteger(offset) || offset < 0)
+            throw new RequestError(-32602, "Invalid params: unknown cursor");
+          const all = loadMemory()
+            .entries.filter((m) => m.kind === kind && (!params.pinned || m.pinnedAt))
+            .sort((a, b) => b.id - a.id);
+          return {
+            entries: all.slice(offset, offset + limit).map(memoJson),
+            ...(offset + limit < all.length ? { nextCursor: String(offset + limit) } : {}),
+          };
+        },
+        "_com.maetek.agent86/memory/pin": (params) => {
+          memoryOpen(params);
+          const kind = memoryKind(params);
+          const id = memoryId(params);
+          const pinned = params.pinned ?? true;
+          /** @type {Memo | undefined} */
+          let found;
+          changeMemory((db) => {
+            found = db.entries.find((m) => m.kind === kind && m.id === id);
+            if (!found) return;
+            if (pinned) found.pinnedAt ??= new Date().toISOString();
+            else delete found.pinnedAt;
+          });
+          if (!found) throw new RequestError(-32002, `No ${kind} with id ${id}`);
+          return { entry: memoJson(found) };
+        },
+        "_com.maetek.agent86/memory/forget": (params) => {
+          memoryOpen(params);
+          const kind = memoryKind(params);
+          const id = memoryId(params);
+          let found = false;
+          changeMemory((db) => {
+            const before = db.entries.length;
+            db.entries = db.entries.filter((m) => !(m.kind === kind && m.id === id));
+            found = db.entries.length < before;
+          });
+          if (!found) throw new RequestError(-32002, `No ${kind} with id ${id}`);
+          return {};
+        },
+      }
+    : {}),
+  ...(v1023
+    ? {
+        "_com.maetek.agent86/secret/set": (params) => {
+          const sessionId = openSession(params);
+          const name = secretName(params);
+          const { value, remember: keep = false } = params;
+          if (typeof value !== "string")
+            throw new RequestError(-32602, "Invalid params: value must be a string");
+          if ([...value].length < 6)
+            throw new RequestError(
+              -32602,
+              "Invalid params: value must have at least 6 characters, or hiding it would rewrite ordinary text wherever those characters appear",
+            );
+          if (typeof keep !== "boolean")
+            throw new RequestError(-32602, "Invalid params: remember must be a boolean");
+          vault(sessionId).set(name, value);
+          if (keep && KEYRING_OFF)
+            return {
+              name,
+              remembered: false,
+              warning: "no keyring is available to remember it, so it is set for this session only",
+            };
+          // Setting a remembered name without remember takes it out ("just this once").
+          if (!KEYRING_OFF)
+            changeKeyring((folder) => {
+              if (keep) folder[name] = value;
+              else delete folder[name];
+            });
+          return { name, remembered: keep };
+        },
+        "_com.maetek.agent86/secret/list": (params) => {
+          const sessionId = openSession(params);
+          const kept = KEYRING_OFF ? {} : (loadKeyring()[process.cwd()] ?? {});
+          return {
+            secrets: [...vault(sessionId).keys()].map((name) => ({
+              name,
+              remembered: name in kept,
+            })),
+            canRemember: !KEYRING_OFF,
+          };
+        },
+        "_com.maetek.agent86/secret/forget": (params) => {
+          const sessionId = openSession(params);
+          const name = secretName(params);
+          let forgotten = vault(sessionId).delete(name);
+          if (!KEYRING_OFF)
+            changeKeyring((folder) => {
+              if (name in folder) forgotten = true;
+              delete folder[name];
+            });
+          return { forgotten };
+        },
+      }
+    : {}),
+});
 
 const stream = ndJsonStream(
   /** @type {WritableStream<Uint8Array>} */ (Writable.toWeb(process.stdout)),

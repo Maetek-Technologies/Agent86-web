@@ -108,10 +108,10 @@ describe("detecting agent86 1.0.21", () => {
 
   it("reports both features from initialize, and neither from agent86 1.0.20's resume", async () => {
     const client = await Agent86Client.connect(scriptedAgent(INIT).stream);
-    expect(client.features).toEqual({ state: true, resume: true });
+    expect(client.features).toEqual({ state: true, resume: true, memory: false, secrets: false });
     client.close();
     const legacy = await Agent86Client.connect(scriptedAgent(LEGACY_INIT).stream);
-    expect(legacy.features).toEqual({ state: true, resume: false });
+    expect(legacy.features).toEqual({ state: true, resume: false, memory: false, secrets: false });
     legacy.close();
   });
 });
@@ -253,9 +253,10 @@ describe("the questions queue", () => {
     expect(
       parseEvent({
         kind: "questions",
-        asking: { kind: "secret", subject: "TOKEN" },
+        // agent86 1.0.23 made `secret` (and `limit`) known kinds; these are not.
+        asking: { kind: "oracle", subject: "TOKEN" },
         waiting: [
-          { kind: "limit", subject: "steps" },
+          { kind: "vote", subject: "steps" },
           { kind: "approval", call: "c", hue: 3 },
         ],
         colour: "blue",

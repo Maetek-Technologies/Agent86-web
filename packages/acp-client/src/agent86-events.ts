@@ -76,12 +76,18 @@ export interface RouteEvent {
 }
 
 /**
- * A question agent86 asks or will ask (agent86 1.0.21). Over ACP only two kinds occur: `approval`
- * (a tool call; its permission request names `call`) and `specialty` (the one-time approval of a
- * project specialist, `subject`, whose request offers one `allow_always` option).
+ * A question agent86 asks or will ask (agent86 1.0.21): `approval` (a tool call; its permission
+ * request names `call`), `specialty` (the one-time approval of a project specialist, `subject`,
+ * whose request offers one `allow_always` option), `limit` (raising a limit, `subject`; the
+ * terminal's, not asked over ACP so far), and `secret` (the model's `request_secret`, agent86
+ * 1.0.23; sent with no name, and, as recorded from 1.0.23, no `call` or `tool` either).
  */
+export type QuestionKind = "approval" | "specialty" | "limit" | "secret";
+
+const QUESTION_KINDS: ReadonlySet<string> = new Set(["approval", "specialty", "limit", "secret"]);
+
 export interface Question {
-  kind: "approval" | "specialty";
+  kind: QuestionKind;
   /** The tool asking about; `delegate` for a specialty. */
   tool?: string;
   /** The tool call id its permission request will name. */
@@ -90,7 +96,7 @@ export interface Question {
   agent?: string;
   /** The tool call id of that sub-agent's delegation card. */
   card?: string;
-  /** For a specialty: the project specialist to be approved. */
+  /** For a specialty, the project specialist to be approved; for a limit, the limit to raise. */
   subject?: string;
 }
 
@@ -249,9 +255,10 @@ export function parseEvent(raw: unknown): Agent86Event | undefined {
 
 /** One question, or undefined for an unknown kind. Omitted fields stay absent. */
 export function parseQuestion(raw: unknown): Question | undefined {
-  if (!isObject(raw) || (raw.kind !== "approval" && raw.kind !== "specialty")) return undefined;
+  if (!isObject(raw) || typeof raw.kind !== "string" || !QUESTION_KINDS.has(raw.kind))
+    return undefined;
   return defined<Question>({
-    kind: raw.kind,
+    kind: raw.kind as QuestionKind,
     tool: str(raw.tool),
     call: str(raw.call),
     agent: str(raw.agent),

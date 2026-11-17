@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALLOWED_CLIENT_METHODS,
+  clientCapabilities,
   FORCED_CLIENT_CAPABILITIES,
   filterClientMessage,
+  HIDDEN,
+  redactSecrets,
+  SECRET_REQUEST_METHOD,
   type PolicyContext,
 } from "../src/policy.ts";
 
@@ -133,5 +138,128 @@ describe("filterClientMessage", () => {
     ["neither a request nor a response", '{"jsonrpc":"2.0","id":1}'],
   ])("refuses a message that is %s", (_label, raw) => {
     expect(filterClientMessage(raw, ctx).action).toBe("reject");
+  });
+});
+
+describe("agent86 1.0.22 and 1.0.23 (memory and secrets)", () => {
+  const MEMORY = ["list", "pin", "forget"].map((m) => `_com.maetek.agent86/memory/${m}`);
+  const SECRETS = ["set", "list", "forget"].map((m) => `_com.maetek.agent86/secret/${m}`);
+
+  it.each([...MEMORY, ...SECRETS])("lets %s through unchanged", (method) => {
+    const message = {
+      jsonrpc: "2.0",
+      id: 4,
+      method,
+      params: { sessionId: "s", kind: "fact", id: 1, name: "TOKEN", value: "sk_value_123" },
+    };
+    expect(ALLOWED_CLIENT_METHODS.has(method)).toBe(true);
+    expect(send(message)).toEqual({ action: "forward", message });
+  });
+
+  it("still refuses look-alikes and other extension methods", () => {
+    for (const method of [
+      "_com.maetek.agent86/secret/request",
+      "_com.maetek.agent86/memory/prune",
+      "_com.maetek.agent86/secret/get",
+      "com.maetek.agent86/memory/list",
+      "_com.maetek.agent86/session/event",
+    ]) {
+      expect(request(method, { sessionId: "s" })).toMatchObject({
+        action: "reject",
+        error: { error: { code: -32601 } },
+      });
+    }
+  });
+
+  it("passes the secrets claim when the browser makes it, as true or an object", () => {
+    for (const claim of [true, { maskedEntry: true }]) {
+      expect(clientCapabilities({ _meta: { "com.maetek.agent86/secrets": claim } })._meta).toEqual({
+        "com.maetek.agent86/secrets": true,
+      });
+    }
+    expect(
+      clientCapabilities({
+        _meta: { "com.maetek.agent86/state": {}, "com.maetek.agent86/secrets": true },
+      })._meta,
+    ).toEqual({ "com.maetek.agent86/state": true, "com.maetek.agent86/secrets": true });
+  });
+
+  it("drops a secrets claim of the wrong type, and every other _meta key", () => {
+    for (const claim of [false, "yes", 1, null, []]) {
+      expect(clientCapabilities({ _meta: { "com.maetek.agent86/secrets": claim } })).toEqual(
+        FORCED_CLIENT_CAPABILITIES,
+      );
+    }
+    expect(
+      clientCapabilities({
+        _meta: { "com.maetek.agent86/memory": true, "com.example/x": true },
+      }),
+    ).toEqual(FORCED_CLIENT_CAPABILITIES);
+  });
+
+  it("keeps the secrets claim through initialize, beside the forced capabilities", () => {
+    const result = request("initialize", {
+      protocolVersion: 1,
+      clientCapabilities: {
+        fs: { readTextFile: true },
+        terminal: true,
+        _meta: { "com.maetek.agent86/secrets": true },
+      },
+    });
+    expect(result).toMatchObject({
+      action: "forward",
+      message: {
+        params: {
+          clientCapabilities: {
+            ...FORCED_CLIENT_CAPABILITIES,
+            _meta: { "com.maetek.agent86/secrets": true },
+          },
+        },
+      },
+    });
+  });
+
+  it("passes an answer to a secret request through as sent (the value must reach agent86)", () => {
+    const answer = {
+      jsonrpc: "2.0",
+      id: 3,
+      result: { outcome: "entered", value: "sk_value_123", remember: true },
+    };
+    expect(send(answer)).toEqual({ action: "forward", message: answer });
+  });
+});
+
+describe("redactSecrets", () => {
+  it("hides params.value on secret/set and leaves the message itself alone", () => {
+    const message = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "_com.maetek.agent86/secret/set",
+      params: { sessionId: "s", name: "TOKEN", value: "sk_value_123", remember: true },
+    };
+    expect(redactSecrets(message)).toEqual({
+      ...message,
+      params: { ...message.params, value: HIDDEN },
+    });
+    expect(message.params.value).toBe("sk_value_123");
+  });
+
+  it("hides result.value on the answer to a secret request", () => {
+    const answer = { jsonrpc: "2.0", id: 3, result: { outcome: "entered", value: "sk_v_1234" } };
+    expect(redactSecrets(answer, SECRET_REQUEST_METHOD)).toEqual({
+      ...answer,
+      result: { outcome: "entered", value: HIDDEN },
+    });
+    expect(JSON.stringify(redactSecrets(answer, SECRET_REQUEST_METHOD))).not.toContain("sk_v_");
+  });
+
+  it("leaves everything else as it is", () => {
+    const permission = { jsonrpc: "2.0", id: 3, result: { outcome: { outcome: "cancelled" } } };
+    expect(redactSecrets(permission, "session/request_permission")).toBe(permission);
+    const declined = { jsonrpc: "2.0", id: 3, result: { outcome: "declined" } };
+    expect(redactSecrets(declined, SECRET_REQUEST_METHOD)).toBe(declined);
+    const list = { jsonrpc: "2.0", id: 2, method: "_com.maetek.agent86/secret/list", params: {} };
+    expect(redactSecrets(list)).toBe(list);
+    expect(redactSecrets("text")).toBe("text");
   });
 });

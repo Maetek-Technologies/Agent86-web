@@ -1,5 +1,5 @@
 // The bridge's HTTP and WebSocket server (docs/ARCHITECTURE.md §3.2).
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -63,6 +63,11 @@ export interface BridgeOptions {
    */
   onShutdownRequested?: () => void;
   log?: (line: string) => void;
+  /**
+   * A file to append every relayed ACP message to, one per line as `<thread> C>|A> <json>`, with a
+   * secret's value written as `<hidden>` (docs/SECURITY.md T22). Off unless set; for debugging.
+   */
+  transcript?: string;
 }
 
 export const DEFAULT_MAX_AGENTS = 8;
@@ -115,6 +120,20 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
   if (options.roots.length === 0) throw new Error("at least one --root is needed");
 
   const log = options.log ?? (() => undefined);
+  const transcriptFile = options.transcript;
+  /** The opt-in transcript; messages arrive already redacted (agent-process.ts). */
+  const transcript = transcriptFile
+    ? (thread: string) => (direction: "C>" | "A>", message: unknown) => {
+        try {
+          appendFileSync(transcriptFile, `${thread} ${direction} ${JSON.stringify(message)}\n`, {
+            mode: 0o600,
+          });
+        } catch {
+          // A transcript that cannot be written never stops the relay.
+        }
+      }
+    : undefined;
+  if (transcriptFile) log(`writing an ACP transcript to ${transcriptFile} (secret values hidden)`);
   const trust = new TrustStore(options.stateDir);
   const settings = new SettingsStore(options.stateDir);
   /** Newer releases, filled in the background after startup. */
@@ -155,6 +174,7 @@ export async function startBridge(options: BridgeOptions): Promise<RunningBridge
         workspace,
         realpath,
         log: (line) => log(`thread ${thread}: ${line}`),
+        ...(transcript ? { record: transcript(thread) } : {}),
       });
       // The process id, for a look with ps or Task Manager (and the tests that stop one mid-turn).
       if (agent.child.pid !== undefined) log(`thread ${thread}: agent86 pid ${agent.child.pid}`);

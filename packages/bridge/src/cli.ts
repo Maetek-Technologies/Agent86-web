@@ -91,6 +91,8 @@ async function main(): Promise<number> {
 
   // The bridge's own state (settings, trusted projects); AGENT86_WEB_STATE_DIR moves it (tests).
   const stateDir = process.env.AGENT86_WEB_STATE_DIR || undefined;
+  // Every relayed ACP message, for debugging (secret values hidden; docs/SECURITY.md T22).
+  const transcript = process.env.AGENT86_WEB_TRANSCRIPT || undefined;
   const settings = new SettingsStore(stateDir);
   if (values["save-port"]) {
     if (values.port === undefined) {
@@ -175,6 +177,7 @@ async function main(): Promise<number> {
       agent86: { command: values.agent86, version, args: values["agent-arg"] ?? [] },
       publicDir,
       stateDir,
+      ...(transcript ? { transcript } : {}),
       devOrigin: values["dev-origin"],
       maxAgents,
       idleTimeoutMs,

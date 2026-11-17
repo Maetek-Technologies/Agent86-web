@@ -7,7 +7,9 @@ agent86-web runs a small server on your machine (loopback only) and opens a page
 - **Conversations** with streamed Markdown and the model's reasoning, which you can fold away.
 - **Approvals**, with the diff or command in view. With agent86 1.0.21, a sub-agent's approval says which sub-agent asks, where it works, and what it has spent, and an inbox lists the approvals waiting behind it.
 - **Saved sessions**, including ones started at a terminal (and `agent86 --resume <id>` continues a browser session at a terminal).
-- **Several threads at once**, which reconnect by themselves. With agent86 1.0.21, a thread survives agent86 stopping partway through a turn: it comes back with the steps agent86 finished and offers to continue.
+- **Several threads at once**, which reconnect by themselves. With agent86 1.0.21, a thread survives agent86 stopping partway through a turn: it comes back with the steps agent86 finished and offers to continue, and after agent86-web restarts, opening its new link in the same tab brings the threads back without replaying them.
+- **Memory** (agent86 1.0.22): see the facts and episodes agent86 has stored, pin the ones that matter, and forget the wrong ones.
+- **Secrets** (agent86 1.0.23): hand agent86 an API key or token through a masked entry, remembered for the project if you like, and answer the model in a masked prompt when it asks for one. The model only ever sees the name.
 - **Model and approval-mode pickers**, `/` commands, and `@` file mentions.
 - **Thread names** you choose (saved in agent86 with 1.0.17 or newer), a resizable sessions panel, and a **Quit** button.
 
@@ -58,7 +60,8 @@ agent86-web --root ~/code
 - **The approval mode new threads start in.** Choose it under _Settings & about_, or with _make default_ next to a thread's mode. agent86-web keeps it in `~/.agent86-web/settings.json`, so it holds in every browser and across restarts. Each thread keeps its own mode and model, even after a reload or a restart. To change agent86's own default everywhere, terminal included, set `approval = "auto"` (or `ask`, `deny`) under `[guardrails]` in `~/.agent86/config.toml`, or start agent86-web with `AGENT86_APPROVAL=auto` in its environment.
 - **The same port every time.** `agent86-web --port 8686 --save-port` saves the port in `~/.agent86-web/settings.json`; later starts use it, and the browser keeps your open threads and prompt history across restarts. If the port is in use, agent86-web says so and stops. `--port` and `AGENT86_WEB_PORT` override it for one run.
 - **Stopping.** Press Ctrl+C in the terminal, or use ⏻ (Quit) in the top bar. Either way, every agent86 it started stops; sessions are saved.
-- **Model setup and secrets stay at the terminal.** Add keys with `agent86 keys set <provider>` or `/config model`, and enter secrets with `/secret NAME` in `agent86`, choosing to remember them for the project. Browser threads then use them. The protocol agent86-web speaks does not allow asking for secrets in a form.
+- **Model setup stays at the terminal.** Add keys with `agent86 keys set <provider>` or `/config model`.
+- **Secrets.** With agent86 1.0.23, use _secrets_ in the thread header, or answer the masked prompt when the model asks. Don't type a secret after `/secret` in the message box: agent86-web won't send it, and opens the secrets panel instead. A secret you don't remember for the project lasts only as long as that agent86 process (agent86-web stops an idle one after `--idle-timeout`). With an older agent86, enter secrets with `/secret NAME` in `agent86` at a terminal, choosing to remember them for the project; browser threads then use them.
 - **Using it from another device.** agent86-web listens only on loopback. Forward the port over SSH:
   ```sh
   ssh -L 8686:127.0.0.1:8686 you@dev-machine   # on dev-machine: agent86-web --port 8686 --no-open
@@ -76,6 +79,7 @@ agent86-web can make agent86 edit files and run commands, so it is locked down:
 - A strict Content-Security-Policy applies to the page.
 - Threads can only run under the `--root` folders.
 - A page cannot add MCP servers.
+- A secret you type goes from a masked entry straight to agent86; agent86-web never shows, stores, or logs it. `AGENT86_WEB_TRANSCRIPT=<file>` records every relayed message for debugging, with secret values written as `<hidden>`; it holds your prompts and file contents, so delete it when done.
 
 agent86's own approval gate, sandbox, and guardrails apply unchanged. The threat model is in [docs/SECURITY.md](https://github.com/Maetek-Technologies/Agent86-web/blob/main/docs/SECURITY.md).
 

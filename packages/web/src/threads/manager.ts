@@ -105,6 +105,8 @@ export class ThreadHandle {
   private agentExited = false;
   /** Another tab took the thread over, so this tab's transcript may be out of date. */
   private copyStale = false;
+  /** Counts connection attempts, so only the latest goes on once its socket opens. */
+  private connecting = 0;
 
   constructor(
     meta: ThreadMeta,
@@ -255,11 +257,18 @@ export class ThreadHandle {
     });
     if (fresh) this.log("restarting agent86 with this project's settings");
     else this.log(this.attempt > 0 ? `reconnecting (attempt ${this.attempt})` : "connecting");
+    // A newer attempt (reconnectNow, while this one waited for its socket) supersedes this one.
+    const attempt = ++this.connecting;
     let socket: WebSocket;
     try {
       socket = await openSocket(acpUrl(meta.id, meta.workspace, fresh));
     } catch (error) {
+      if (attempt !== this.connecting) return;
       return this.failOrRetry(message(error), "connecting");
+    }
+    if (attempt !== this.connecting || this.closedByUs) {
+      socket.close(1000, "superseded");
+      return;
     }
     this.socket = socket;
     socket.addEventListener("close", (event) => this.onClose(socket, event));
@@ -398,6 +407,17 @@ export class ThreadHandle {
     this.retryTimer = setTimeout(() => void this.connect(), delay);
   }
 
+  /**
+   * Reconnect now rather than at the next retry (agent86-web was restarted and this tab signed in
+   * again). A thread that is connected, or was taken over by another tab, is left alone.
+   */
+  reconnectNow(): void {
+    const { phase } = this.snapshot;
+    if (phase === "ready" || phase === "taken" || this.closedByUs) return;
+    this.attempt = Math.max(this.attempt, 1);
+    void this.connect();
+  }
+
   /** Disconnect. The bridge keeps agent86 running until its idle timeout. */
   close(): void {
     this.closedByUs = true;
@@ -521,6 +541,11 @@ export class ThreadManager {
 
   closeAll(): void {
     for (const handle of this.handles) handle.close();
+  }
+
+  /** Reconnect every thread that is not connected, now (see `ThreadHandle.reconnectNow`). */
+  reconnectAll(): void {
+    for (const handle of this.handles) handle.reconnectNow();
   }
 
   private add(meta: ThreadMeta, activate: boolean): void {
