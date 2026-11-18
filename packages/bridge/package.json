@@ -44,7 +44,7 @@
     "prepublishOnly": "node scripts/check-dist.mjs"
   },
   "dependencies": {
-    "ws": "8.22.2"
+    "ws": "8.23.0"
   },
   "devDependencies": {
     "@agent86-web/mock-agent": "workspace:*",
