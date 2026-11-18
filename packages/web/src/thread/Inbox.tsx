@@ -114,7 +114,7 @@ export function Inbox({ items, className = "" }: { items: InboxItem[]; className
           );
         })}
       </ol>
-      <p className="px-3 py-2 text-xs text-muted">agent86 asks one at a time, in this order.</p>
+      <p className="px-3 py-2 text-xs text-muted">Agent 86 asks one at a time, in this order.</p>
     </aside>
   );
 }

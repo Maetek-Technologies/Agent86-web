@@ -13,9 +13,9 @@ import {
   type Bridge,
 } from "./bridge.ts";
 
-const box = (page: Page) => page.getByRole("textbox", { name: "Message agent86" });
+const box = (page: Page) => page.getByRole("textbox", { name: "Message Agent 86" });
 const visible = (page: Page) => page.getByRole("tabpanel").filter({ visible: true });
-const replies = (page: Page) => visible(page).getByLabel("agent86", { exact: true });
+const replies = (page: Page) => visible(page).getByLabel("Agent 86", { exact: true });
 const status = (page: Page) => visible(page).getByRole("status", { name: "Agent status" });
 
 async function send(page: Page, text: string) {
@@ -162,7 +162,7 @@ function threadFlows(flavor: Flavor) {
   test("shows agent86's notes in the logs drawer", async ({ page }) => {
     await openThread(page, bridge.url);
     await visible(page).getByRole("button", { name: /^logs/ }).click();
-    await expect(visible(page).getByLabel("agent86 logs")).not.toBeEmpty();
+    await expect(visible(page).getByLabel("Agent 86 logs")).not.toBeEmpty();
   });
 
   test("opens a thread in a folder chosen from the workspace picker", async ({ page }) => {
@@ -173,7 +173,7 @@ function threadFlows(flavor: Flavor) {
     await picker.getByRole("button", { name: /sub/ }).click();
     await picker.getByRole("button", { name: "Use this folder" }).click();
     await expect(box(page).filter({ visible: true })).toBeEditable();
-    await expect(visible(page).getByText("What should agent86 do?")).toBeVisible();
+    await expect(visible(page).getByText("What should Agent 86 do?")).toBeVisible();
     await expect(visible(page)).toContainText(join(bridge.workspace, "sub"));
     await expect(
       page.getByRole("region", { name: `Sessions in ${join(bridge.workspace, "sub")}` }),

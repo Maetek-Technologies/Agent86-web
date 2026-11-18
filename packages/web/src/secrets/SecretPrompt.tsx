@@ -63,7 +63,7 @@ export function SecretPrompt({
     >
       <form
         role="dialog"
-        aria-label={`agent86 asks for the secret ${request.name}`}
+        aria-label={`Agent 86 asks for the secret ${request.name}`}
         onSubmit={submit}
         onKeyDown={onKeyDown}
         // Submitting is always caught (`submit`), and no field has a `name`, so even a submit the
@@ -77,7 +77,7 @@ export function SecretPrompt({
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold">
-              agent86 asks for the secret{" "}
+              Agent 86 asks for the secret{" "}
               <span className="font-mono" data-testid="secret-prompt-name">
                 {request.name}
               </span>
@@ -128,7 +128,7 @@ export function SecretPrompt({
           </label>
         )}
         <p className="text-xs text-muted">
-          The model only ever sees the name. The value goes straight to agent86 and is not kept in
+          The model only ever sees the name. The value goes straight to Agent 86 and is not kept in
           this thread, its history, or the logs.
           {!request.canRemember && " No keyring is available, so it is held for this session only."}
         </p>

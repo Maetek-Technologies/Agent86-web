@@ -138,7 +138,7 @@ export function SecretsPanel({
         )}
         {busy && (
           <p className="text-xs text-muted" data-testid="secrets-busy">
-            agent86 is busy with a turn; secrets can be changed when it ends.
+            Agent 86 is busy with a turn; secrets can be changed when it ends.
           </p>
         )}
         <p className="text-xs text-muted">
@@ -250,13 +250,13 @@ export function SecretsPanel({
           {list && !list.canRemember && (
             <p className="text-xs text-muted">
               No keyring is available: a secret is held for this session only, and is gone when
-              agent86 restarts.
+              Agent 86 restarts.
             </p>
           )}
           {list?.canRemember && (
             <p className="text-xs text-muted">
-              Not remembered, a secret is held for this session only and is gone when agent86
-              restarts (agent86-web stops an idle agent86). Setting a remembered name again without
+              Not remembered, a secret is held for this session only and is gone when Agent 86
+              restarts (agent86-web stops an idle Agent 86). Setting a remembered name again without
               remembering takes it out of the keyring.
             </p>
           )}

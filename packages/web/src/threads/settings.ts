@@ -120,7 +120,7 @@ export class SettingsKeeper {
     const now = currentOf(this.session, "model");
     this.session.notice(
       "warning",
-      `agent86 does not offer ${model}, this thread's model, any more. It is using ${now ?? "its default"}.`,
+      `Agent 86 does not offer ${model}, this thread's model, any more. It is using ${now ?? "its default"}.`,
     );
     this.record();
   }

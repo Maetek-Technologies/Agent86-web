@@ -163,13 +163,13 @@ export function MemoryPanel({
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
         {busy && (
           <p className="text-xs text-muted" data-testid="memory-busy">
-            agent86 is busy with a turn; its memory can be read and changed when it ends.
+            Agent 86 is busy with a turn; its memory can be read and changed when it ends.
           </p>
         )}
         <p className="text-xs text-muted">
           {kind === "fact"
             ? "Facts are what the agent keeps with remember."
-            : "Episodes are one per finished turn; agent86 recalls them into similar later tasks."}{" "}
+            : "Episodes are one per finished turn; Agent 86 recalls them into similar later tasks."}{" "}
           Pinned entries are never pruned.
         </p>
         {entries && entries.length === 0 && (

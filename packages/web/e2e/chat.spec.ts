@@ -9,13 +9,13 @@ import {
 } from "./bridge.ts";
 
 async function send(page: Page, text: string) {
-  const box = page.getByRole("textbox", { name: "Message agent86" });
+  const box = page.getByRole("textbox", { name: "Message Agent 86" });
   await box.fill(text);
   await box.press("Enter");
 }
 
 const status = (page: Page) => page.getByRole("status", { name: "Agent status" });
-const replies = (page: Page) => page.getByLabel("agent86", { exact: true });
+const replies = (page: Page) => page.getByLabel("Agent 86", { exact: true });
 
 /** The flows every agent must pass: run against the mock agent and the real agent86. */
 function chatFlows(start: () => Promise<Bridge>, sessionHint: RegExp) {
@@ -33,7 +33,7 @@ function chatFlows(start: () => Promise<Bridge>, sessionHint: RegExp) {
     await expect(page.getByLabel("You", { exact: true })).toHaveText("hello");
     await expect(replies(page)).toHaveText("Hello from the mock model. You said: hello");
     await expect(status(page)).toBeHidden();
-    await expect(page.getByRole("textbox", { name: "Message agent86" })).toBeFocused();
+    await expect(page.getByRole("textbox", { name: "Message Agent 86" })).toBeFocused();
     const thought = page.getByTestId("thought");
     await expect(thought.getByRole("button")).toContainText("Thought for");
     await expect(thought).not.toContainText("Let me think about that.");

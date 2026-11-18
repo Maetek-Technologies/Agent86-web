@@ -2,11 +2,11 @@ import { Thread } from "../thread/Thread.tsx";
 import type { ThreadHandle, ThreadSnapshot } from "./manager.ts";
 
 const PHASE_TEXT: Record<string, string> = {
-  connecting: "Starting agent86…",
+  connecting: "Starting Agent 86…",
   starting: "Starting a session…",
   loading: "Reopening the session…",
   "waiting-turn":
-    "agent86 is finishing a turn started before the page reloaded. The session reopens when it ends…",
+    "Agent 86 is finishing a turn started before the page reloaded. The session reopens when it ends…",
   reconnecting: "Reconnecting…",
 };
 
@@ -14,7 +14,9 @@ const PHASE_TEXT: Record<string, string> = {
 function ModelHelp() {
   return (
     <div className="space-y-2 rounded border border-border bg-panel-2 p-3 text-sm">
-      <p>agent86 could not start a session. Usually its model has no API key yet. At a terminal:</p>
+      <p>
+        Agent 86 could not start a session. Usually its model has no API key yet. At a terminal:
+      </p>
       <pre className="overflow-x-auto font-mono text-xs">
         {"agent86 keys set <provider>      # e.g. anthropic, openai, openrouter\n" +
           "agent86                          # or: /config model, to pick a provider and model"}

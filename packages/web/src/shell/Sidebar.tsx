@@ -74,7 +74,7 @@ function SessionRow({
         title={
           title === (session.title || session.sessionId)
             ? `agent86 --resume ${session.sessionId}`
-            : `${title}\nagent86's name: ${session.title ?? "(none)"}\nagent86 --resume ${session.sessionId}`
+            : `${title}\nAgent 86's name: ${session.title ?? "(none)"}\nagent86 --resume ${session.sessionId}`
         }
       >
         <span className={`min-w-0 flex-1 truncate ${open ? "text-accent" : ""}`}>{title}</span>

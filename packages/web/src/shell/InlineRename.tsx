@@ -3,7 +3,7 @@ import { cleanTitle, TITLE_MAX } from "../threads/storage.ts";
 
 /** Where a new name is kept, for the editor's tooltip. */
 export const RENAME_HINT =
-  "Enter saves, Esc cancels. agent86 1.0.17 or later keeps the name; with older versions it is kept in this browser.";
+  "Enter saves, Esc cancels. Agent 86 1.0.17 or later keeps the name; with older versions it is kept in this browser.";
 
 /** A name being edited in place: Enter (or leaving the field) saves, Esc cancels. */
 export function InlineRename({

@@ -59,7 +59,7 @@ describe("the secret prompt (secret/request)", () => {
     const onEnter = vi.fn();
     const onDecline = vi.fn();
     render(<SecretPrompt request={REQUEST} onEnter={onEnter} onDecline={onDecline} />);
-    const dialog = screen.getByRole("dialog", { name: "agent86 asks for the secret STRIPE_KEY" });
+    const dialog = screen.getByRole("dialog", { name: "Agent 86 asks for the secret STRIPE_KEY" });
     expect(within(dialog).getByTestId("secret-prompt-reason").textContent).toMatch(
       "to create the webhook",
     );
@@ -201,7 +201,7 @@ describe("a value typed after /secret in the message box", () => {
         onSecretTyped={onSecretTyped}
       />,
     );
-    const box = screen.getByRole("textbox", { name: "Message agent86" });
+    const box = screen.getByRole("textbox", { name: "Message Agent 86" });
     fireEvent.change(box, { target: { value: `/secret ${TYPED}` } });
     fireEvent.keyDown(box, { key: "Enter" });
     expect(onSend).not.toHaveBeenCalled();
@@ -217,7 +217,7 @@ describe("a value typed after /secret in the message box", () => {
   it("goes to agent86 as before when it does not (an older agent86 answers it itself)", () => {
     const onSend = vi.fn();
     render(<PromptInput workspace="/work" busy={false} disabled={false} onSend={onSend} />);
-    const box = screen.getByRole("textbox", { name: "Message agent86" });
+    const box = screen.getByRole("textbox", { name: "Message Agent 86" });
     fireEvent.change(box, { target: { value: "/secret abcdefgh" } });
     fireEvent.keyDown(box, { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("/secret abcdefgh", []);

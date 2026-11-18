@@ -177,7 +177,7 @@ describe("SettingsKeeper", () => {
     await keeper.restore({ model: "or:gone" });
     vi.advanceTimersByTime(5000);
     expect(session.notices).toEqual([
-      "agent86 does not offer or:gone, this thread's model, any more. It is using or:default.",
+      "Agent 86 does not offer or:gone, this thread's model, any more. It is using or:default.",
     ]);
     expect(seen.at(-1)).toMatchObject({ model: "or:default" });
   });

@@ -8,9 +8,11 @@ import type {
   TurnEndEntry,
   UserEntry,
 } from "@agent86-web/acp-client";
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Markdown } from "../markdown/Markdown.tsx";
 import { ToolCard } from "../tools/ToolCard.tsx";
+import { CommandOutputView } from "./CommandOutput.tsx";
+import { listingCommand, parseCommandOutput } from "./commandOutput.ts";
 import { ModelCalls, SpendMeter } from "./Spend.tsx";
 import { useThread } from "./ThreadContext.ts";
 import { formatChars, formatDuration, useElapsed } from "./useElapsed.ts";
@@ -28,10 +30,23 @@ function UserMessage({ entry }: { entry: UserEntry }) {
   );
 }
 
-const AgentMessage = memo(function AgentMessage({ entry }: { entry: AgentEntry }) {
+type Listing = ReturnType<typeof listingCommand>;
+
+/** A reply, as Markdown; a reply to `/tools`, `/skills` or `/agents` as a list, when it reads as one. */
+const AgentMessage = memo(function AgentMessage({
+  entry,
+  command,
+}: {
+  entry: AgentEntry;
+  command?: Listing;
+}) {
+  const output = useMemo(
+    () => (command ? parseCommandOutput(command, entry.text) : undefined),
+    [command, entry.text],
+  );
   return (
-    <div aria-label="agent86">
-      <Markdown text={entry.text} />
+    <div aria-label="Agent 86">
+      {output ? <CommandOutputView output={output} /> : <Markdown text={entry.text} />}
     </div>
   );
 });
@@ -101,7 +116,7 @@ function Interrupted({ entry, last }: { entry: TurnEndEntry; last: boolean }) {
         ↯
       </span>
       <span className="flex-1">
-        Interrupted: agent86 stopped partway through this turn
+        Interrupted: Agent 86 stopped partway through this turn
         {entry.durationMs > 0 && ` (after ${formatDuration(entry.durationMs)})`}. The steps it
         finished are kept.
       </span>
@@ -248,12 +263,12 @@ function Guardrail({ entry }: { entry: GuardrailEntry }) {
   );
 }
 
-function EntryView({ entry, last }: { entry: Entry; last: boolean }) {
+function EntryView({ entry, last, command }: { entry: Entry; last: boolean; command?: Listing }) {
   switch (entry.kind) {
     case "user":
       return <UserMessage entry={entry} />;
     case "agent":
-      return <AgentMessage entry={entry} />;
+      return <AgentMessage entry={entry} command={command} />;
     case "thought":
       return <ThinkingBlock entry={entry} />;
     case "tool":
@@ -271,11 +286,26 @@ function EntryView({ entry, last }: { entry: Entry; last: boolean }) {
   }
 }
 
+/** For each entry, the listing command (if any) the latest prompt was: its reply shows as a list. */
+function replyCommands(entries: Entry[]): Listing[] {
+  let command: Listing;
+  return entries.map((entry) => {
+    if (entry.kind === "user") command = listingCommand(entry.text);
+    return entry.kind === "agent" ? command : undefined;
+  });
+}
+
 export function Transcript({ entries }: { entries: Entry[] }) {
+  const commands = useMemo(() => replyCommands(entries), [entries]);
   return (
     <div className="space-y-4" aria-live="polite" aria-relevant="additions">
       {entries.map((entry, i) => (
-        <EntryView key={entry.id} entry={entry} last={i === entries.length - 1} />
+        <EntryView
+          key={entry.id}
+          entry={entry}
+          last={i === entries.length - 1}
+          command={commands[i]}
+        />
       ))}
     </div>
   );

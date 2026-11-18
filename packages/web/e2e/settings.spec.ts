@@ -5,9 +5,9 @@ import { createServer } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
 import { mockAgent86, openThread, scriptedModel, startBridge, type Bridge } from "./bridge.ts";
 
-const box = (page: Page) => page.getByRole("textbox", { name: "Message agent86" });
+const box = (page: Page) => page.getByRole("textbox", { name: "Message Agent 86" });
 const visible = (page: Page) => page.getByRole("tabpanel").filter({ visible: true });
-const replies = (page: Page) => visible(page).getByLabel("agent86", { exact: true });
+const replies = (page: Page) => visible(page).getByLabel("Agent 86", { exact: true });
 const mode = (page: Page) => visible(page).getByRole("combobox", { name: "Approval mode" });
 
 async function send(page: Page, text: string) {
@@ -81,7 +81,7 @@ test("new threads start in the default mode, until it is reset", async ({ page }
 
   // The default lives with the bridge, so a reload keeps it; Settings shows it and can reset it.
   await page.reload();
-  await page.getByRole("button", { name: /^agent86 \d/ }).click();
+  await page.getByRole("button", { name: /^Agent 86 \d/ }).click();
   const settings = page.getByRole("region", { name: "Settings" });
   await expect(settings.getByRole("combobox")).toHaveValue("deny");
   await settings.getByRole("combobox").selectOption("default");

@@ -51,7 +51,7 @@ describe("ToolCard with a permission request", () => {
   it("shows the diff and the options in agent86's order", () => {
     renderCard(entry(), [request()]);
     const panel = screen.getByRole("group", { name: "Approval needed: edit_file" });
-    expect(panel.textContent).toContain("agent86 wants to run edit_file README.md");
+    expect(panel.textContent).toContain("Agent 86 wants to run edit_file README.md");
     const rows = panel.querySelectorAll("tr[data-kind]");
     expect([...rows].map((r) => r.getAttribute("data-kind"))).toEqual(["hunk", "del", "add"]);
     expect(rows[1]?.textContent).toContain("Teh quick brown fox");

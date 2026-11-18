@@ -4,13 +4,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { mockAgent86, scriptedModel, startBridge, type Bridge, openThread } from "./bridge.ts";
 
 async function send(page: Page, text: string) {
-  const box = page.getByRole("textbox", { name: "Message agent86" });
+  const box = page.getByRole("textbox", { name: "Message Agent 86" });
   await box.fill(text);
   await box.press("Enter");
 }
 
 const status = (page: Page) => page.getByRole("status", { name: "Agent status" });
-const replies = (page: Page) => page.getByLabel("agent86", { exact: true });
+const replies = (page: Page) => page.getByLabel("Agent 86", { exact: true });
 const card = (page: Page) => page.getByTestId("tool-card").last();
 
 /** The approval flows: run against the mock agent and the real agent86. */
@@ -34,14 +34,14 @@ function approvalFlows(start: () => Promise<Bridge>) {
     await expect(panel.locator('tr[data-kind="del"]')).toContainText("Teh quick brown fox");
     await expect(panel.locator('tr[data-kind="add"]')).toContainText("The quick brown fox");
     await expect(status(page)).toContainText("Waiting for your approval");
-    await expect(page).toHaveTitle("(!) Approval needed · agent86 web");
+    await expect(page).toHaveTitle("(!) Approval needed · Agent 86 web");
     await expect(panel).toBeFocused();
 
     await page.keyboard.press("1");
     await expect(card(page)).toHaveAttribute("data-state", "done");
     await expect(replies(page).last()).toContainText("Edited README.md");
     expect(readFileSync(readme, "utf8")).toBe("The quick brown fox\n");
-    await expect(page).toHaveTitle("agent86 web");
+    await expect(page).toHaveTitle("Agent 86 web");
   });
 
   test("rejects an edit, and the file stays as it was", async ({ page }) => {
