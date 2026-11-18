@@ -15,8 +15,10 @@ const banner = (page: Page) => visible(page).getByRole("region", { name: "Projec
 async function tools(page: Page): Promise<string> {
   await box(page).fill("/tools");
   await box(page).press("Enter");
-  await expect(replies(page).last()).toContainText("tools:");
-  return (await replies(page).last().textContent()) ?? "";
+  // agent86's "tools: …" reply, shown as a card: an MCP tool under its server, without the prefix.
+  const card = replies(page).last().getByRole("region", { name: "Tools" });
+  await expect(card).toBeVisible();
+  return (await card.textContent()) ?? "";
 }
 
 /** A project whose agent86 config starts an MCP server: a setting that needs trust. */
@@ -44,7 +46,7 @@ function trustFlows(start: () => Promise<Bridge>) {
     await box(page).fill("hello");
     await box(page).press("Enter");
     await expect(replies(page)).toContainText("You said: hello");
-    expect(await tools(page)).not.toContain("mcp__demo__mock_echo");
+    expect(await tools(page)).not.toContain("mock_echo");
 
     await banner(page).getByRole("button", { name: "Review and trust" }).click();
     const dialog = page.getByRole("dialog", { name: /Review and trust/ });
@@ -57,12 +59,12 @@ function trustFlows(start: () => Promise<Bridge>) {
     await expect(box(page)).toBeEditable();
     // The session's turns are replayed (slash commands are not saved, as in agent86).
     await expect(visible(page).getByLabel("You", { exact: true }).first()).toHaveText("hello");
-    expect(await tools(page)).toContain("mcp__demo__mock_echo");
+    expect(await tools(page)).toContain("mock_echo");
 
     // Remembered across a reload, for this file as it is.
     await page.reload();
     await expect(box(page)).toBeEditable();
-    expect(await tools(page)).toContain("mcp__demo__mock_echo");
+    expect(await tools(page)).toContain("mock_echo");
     await expect(banner(page)).toHaveCount(0);
   });
 
@@ -76,7 +78,7 @@ function trustFlows(start: () => Promise<Bridge>) {
     await page.keyboard.press("Alt+n");
     await expect(banner(page)).toContainText("mcp_servers.demo.command");
 
-    await page.getByRole("button", { name: /^agent86 \d/ }).click();
+    await page.getByRole("button", { name: /^Agent 86 \d/ }).click();
     const trusted = page.getByRole("region", { name: "Trusted projects" });
     await expect(trusted).toContainText(join(bridge.workspace, ".agent86", "config.toml"));
     await trusted.getByRole("button", { name: "Revoke" }).click();
@@ -89,7 +91,7 @@ function trustFlows(start: () => Promise<Bridge>) {
     await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(banner(page)).toBeVisible();
-    expect(await tools(page)).not.toContain("mcp__demo__mock_echo");
+    expect(await tools(page)).not.toContain("mock_echo");
   });
 }
 

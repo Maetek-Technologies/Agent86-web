@@ -61,9 +61,9 @@ function withBridge(version: string) {
 test.describe("with agent86 1.0.17", () => {
   const bridge = withBridge("1.0.17");
 
-  test("shows AGENT86 in the header", async ({ page }) => {
+  test("shows AGENT 86 in the header", async ({ page }) => {
     await page.goto(bridge().url);
-    await expect(page.getByRole("banner")).toContainText("AGENT86");
+    await expect(page.getByRole("banner")).toContainText("AGENT 86");
   });
 
   test("renames a thread from its tab, and agent86 keeps the name", async ({ page }) => {
@@ -82,8 +82,8 @@ test.describe("with agent86 1.0.17", () => {
     await expect(visible(page)).not.toContainText("/rename");
     // The logs say so, and the sessions list shows the name.
     await visible(page).getByRole("button", { name: /^logs/ }).click();
-    await expect(visible(page).getByLabel("agent86 logs")).toContainText(
-      "renamed the session in agent86: Release prep",
+    await expect(visible(page).getByLabel("Agent 86 logs")).toContainText(
+      "renamed the session in Agent 86: Release prep",
     );
     await listed(page, /^Release prep/);
     // A later prompt does not take the name back.
@@ -131,7 +131,7 @@ test.describe("with agent86 1.0.17", () => {
 
   test("starts new threads in the preferred approval mode", async ({ page }) => {
     await page.goto(bridge().url);
-    await page.getByRole("button", { name: /^agent86 1\.0\.17/ }).click();
+    await page.getByRole("button", { name: /^Agent 86 1\.0\.17/ }).click();
     const settings = page.getByRole("region", { name: "Settings" });
     await settings.getByRole("combobox").selectOption("auto");
     // auto asks first; Cancel leaves the preference alone.
@@ -158,9 +158,9 @@ test.describe("with agent86 1.0.17", () => {
   test("shows connection events in the logs drawer, with a copy button", async ({ page }) => {
     await openThread(page, bridge().url);
     await visible(page).getByRole("button", { name: /^logs/ }).click();
-    const logs = visible(page).getByLabel("agent86 logs");
+    const logs = visible(page).getByLabel("Agent 86 logs");
     await expect(logs).toContainText("[agent86-web]");
-    await expect(logs).toContainText("connected to agent86 1.0.17");
+    await expect(logs).toContainText("connected to Agent 86 1.0.17");
     await expect(logs).toContainText("started session");
     await expect(logs.getByRole("button", { name: "copy" })).toBeVisible();
   });
@@ -232,8 +232,8 @@ test.describe("with agent86 1.0.15", () => {
 
   test("says which features need agent86 1.0.17", async ({ page }) => {
     await page.goto(bridge().url);
-    await page.getByRole("button", { name: /^agent86 1\.0\.15/ }).click();
-    await expect(page.getByText(/agent86 1\.0\.17 or later keeps thread names/)).toBeVisible();
+    await page.getByRole("button", { name: /^Agent 86 1\.0\.15/ }).click();
+    await expect(page.getByText(/Agent 86 1\.0\.17 or later keeps thread names/)).toBeVisible();
   });
 });
 
@@ -267,8 +267,8 @@ test.describe("with the real agent86", () => {
     await page.getByRole("textbox", { name: "Thread name" }).fill("Real rename");
     await page.getByRole("textbox", { name: "Thread name" }).press("Enter");
     await visible(page).getByRole("button", { name: /^logs/ }).click();
-    await expect(visible(page).getByLabel("agent86 logs")).toContainText(
-      "renamed the session in agent86: Real rename",
+    await expect(visible(page).getByLabel("Agent 86 logs")).toContainText(
+      "renamed the session in Agent 86: Real rename",
     );
     await expect(visible(page)).not.toContainText("/rename");
     // Clear the browser's copy, so the list can only show agent86's own title.

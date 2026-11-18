@@ -23,12 +23,12 @@ test.describe("handshake with the mock agent", () => {
     });
 
     await page.goto(bridge.url);
-    await expect(page.getByText("What should agent86 work on?")).toBeVisible();
+    await expect(page.getByText("What should Agent 86 work on?")).toBeVisible();
     expect(page.url()).toBe(`${bridge.origin}/`);
-    await page.getByRole("button", { name: "agent86 1.0.15" }).click();
+    await page.getByRole("button", { name: "Agent 86 1.0.15" }).click();
     await expect(page.getByRole("definition").filter({ hasText: bridge.workspace })).toBeVisible();
     await newThread(page);
-    await expect(page.getByText("What should agent86 do?")).toBeVisible();
+    await expect(page.getByText("What should Agent 86 do?")).toBeVisible();
     // No CSP violations or other errors.
     expect(errors).toEqual([]);
     expect(bridge.stderr()).toMatch(/starting agent86 in /);
@@ -36,14 +36,14 @@ test.describe("handshake with the mock agent", () => {
 
   test("keeps working after a reload, on the session cookie", async ({ page }) => {
     await page.goto(bridge.url);
-    await expect(page.getByText("What should agent86 work on?")).toBeVisible();
+    await expect(page.getByText("What should Agent 86 work on?")).toBeVisible();
     await page.reload();
-    await expect(page.getByText("What should agent86 work on?")).toBeVisible();
+    await expect(page.getByText("What should Agent 86 work on?")).toBeVisible();
   });
 
   test("refuses the same link in a second browser", async ({ page, browser }) => {
     await page.goto(bridge.url);
-    await expect(page.getByText("What should agent86 work on?")).toBeVisible();
+    await expect(page.getByText("What should Agent 86 work on?")).toBeVisible();
 
     const other = await browser.newContext();
     const otherPage = await other.newPage();
@@ -78,7 +78,7 @@ test.describe("the real agent86", () => {
     const bridge = await startBridge(process.env.AGENT86_BIN!, model.env);
     try {
       await openThread(page, bridge.url);
-      await expect(page.getByText("What should agent86 do?")).toBeVisible();
+      await expect(page.getByText("What should Agent 86 do?")).toBeVisible();
     } finally {
       await bridge.stop();
       await model.stop();

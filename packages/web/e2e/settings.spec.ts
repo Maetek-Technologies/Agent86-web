@@ -81,7 +81,7 @@ test("new threads start in the default mode, until it is reset", async ({ page }
 
   // The default lives with the bridge, so a reload keeps it; Settings shows it and can reset it.
   await page.reload();
-  await page.getByRole("button", { name: /^agent86 \d/ }).click();
+  await page.getByRole("button", { name: /^Agent 86 \d/ }).click();
   const settings = page.getByRole("region", { name: "Settings" });
   await expect(settings.getByRole("combobox")).toHaveValue("deny");
   await settings.getByRole("combobox").selectOption("default");
