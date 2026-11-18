@@ -7,9 +7,9 @@ import { mockAgent86, openThread, scriptedModel, startBridge, type Bridge } from
 
 const MCP = fileURLToPath(new URL("../../mock-agent/src/mock-mcp.js", import.meta.url));
 const box = (page: Page) =>
-  page.getByRole("textbox", { name: "Message agent86" }).filter({ visible: true });
+  page.getByRole("textbox", { name: "Message Agent 86" }).filter({ visible: true });
 const visible = (page: Page) => page.getByRole("tabpanel").filter({ visible: true });
-const replies = (page: Page) => visible(page).getByLabel("agent86", { exact: true });
+const replies = (page: Page) => visible(page).getByLabel("Agent 86", { exact: true });
 const banner = (page: Page) => visible(page).getByRole("region", { name: "Project trust" });
 
 async function tools(page: Page): Promise<string> {

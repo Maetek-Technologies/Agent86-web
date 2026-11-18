@@ -12,7 +12,7 @@ import {
   type Bridge,
 } from "./bridge.ts";
 
-const box = (page: Page) => page.getByRole("textbox", { name: "Message agent86" });
+const box = (page: Page) => page.getByRole("textbox", { name: "Message Agent 86" });
 const visible = (page: Page) => page.getByRole("tabpanel").filter({ visible: true });
 const status = (page: Page) => visible(page).getByRole("status", { name: "Agent status" });
 const sessions = (page: Page) => page.getByRole("navigation", { name: "Sessions" });
@@ -20,7 +20,7 @@ const sessions = (page: Page) => page.getByRole("navigation", { name: "Sessions"
 async function send(page: Page, text: string) {
   await box(page).filter({ visible: true }).fill(text);
   await box(page).filter({ visible: true }).press("Enter");
-  const replies = visible(page).getByLabel("agent86", { exact: true });
+  const replies = visible(page).getByLabel("Agent 86", { exact: true });
   await expect(replies.last()).toContainText(`You said: ${text}`);
   await expect(status(page)).toBeHidden();
 }

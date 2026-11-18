@@ -17,14 +17,14 @@ import {
 } from "./bridge.ts";
 
 const visible = (page: Page) => page.getByRole("tabpanel").filter({ visible: true });
-const box = (page: Page) => visible(page).getByRole("textbox", { name: "Message agent86" });
-const replies = (page: Page) => visible(page).getByLabel("agent86", { exact: true });
+const box = (page: Page) => visible(page).getByRole("textbox", { name: "Message Agent 86" });
+const replies = (page: Page) => visible(page).getByLabel("Agent 86", { exact: true });
 const prompts = (page: Page) => visible(page).getByLabel("You", { exact: true });
 const inbox = (page: Page) => page.getByRole("complementary", { name: "Approval inbox" });
 const memory = (page: Page) => page.getByRole("complementary", { name: "Memory" });
 const secrets = (page: Page) => page.getByRole("complementary", { name: "Secrets" });
 const ask = (page: Page) =>
-  page.getByRole("dialog", { name: "agent86 asks for the secret STRIPE_KEY" });
+  page.getByRole("dialog", { name: "Agent 86 asks for the secret STRIPE_KEY" });
 
 /** Values typed as secrets here; none may reach anything agent86-web or the page keeps. */
 const SET_VALUE = "sk_e2e_SET_value_8b1f2c";
@@ -203,7 +203,7 @@ test.describe("with the mock agent as agent86 1.0.23", () => {
     await expect(ask(page)).toBeVisible();
     await expect(ask(page)).toContainText("to create the webhook");
     await expect(inbox(page).getByTestId("inbox-subject")).toHaveText("a secret: STRIPE_KEY");
-    await expect(page).toHaveTitle("(!) Secret requested · agent86 web");
+    await expect(page).toHaveTitle("(!) Secret requested · Agent 86 web");
     await inbox(page).getByRole("button", { name: "enter it" }).click();
     await expect(ask(page).getByLabel("Value for STRIPE_KEY")).toBeFocused();
     await page.keyboard.type(ENTERED_VALUE);

@@ -133,10 +133,10 @@ export function Thread({
   useEffect(() => {
     if (active)
       document.title = pending
-        ? "(!) Approval needed · agent86 web"
+        ? "(!) Approval needed · Agent 86 web"
         : secretAsk
-          ? "(!) Secret requested · agent86 web"
-          : "agent86 web";
+          ? "(!) Secret requested · Agent 86 web"
+          : "Agent 86 web";
   }, [pending, secretAsk, active]);
 
   const send = (text: string, links: FileLink[]) => {
@@ -184,7 +184,7 @@ export function Thread({
             <div className="mx-auto w-full max-w-3xl px-4 py-6">
               {state.entries.length === 0 ? (
                 <div className="py-16 text-center text-muted">
-                  <p className="text-lg">What should agent86 do?</p>
+                  <p className="text-lg">What should Agent 86 do?</p>
                   <p className="mt-2 text-sm">
                     It works in <span className="font-mono">{state.cwd}</span>. Try a question, or a
                     command such as <span className="font-mono">/cost</span> or{" "}

@@ -94,7 +94,7 @@ function LogLines({ lines }: { lines: string[] }) {
       className="max-h-48 overflow-auto rounded border border-border bg-panel-2 p-2 font-mono text-xs whitespace-pre-wrap"
     >
       {lines.length === 0
-        ? "Nothing yet. agent86 writes notes here only about problems and notable events (MCP servers, memory, ignored project settings), so a healthy thread is usually quiet."
+        ? "Nothing yet. Agent 86 writes notes here only about problems and notable events (MCP servers, memory, ignored project settings), so a healthy thread is usually quiet."
         : lines.map((line, i) => (
             <div key={i} className={line.startsWith("[agent86-web]") ? "text-muted" : ""}>
               {line}
@@ -136,7 +136,7 @@ function UsageMeter({
       </span>
       <span
         data-testid="session-cost"
-        title={usage.cost ? "This session's cost so far" : "agent86 has no price for this model"}
+        title={usage.cost ? "This session's cost so far" : "Agent 86 has no price for this model"}
       >
         {usage.cost ? formatCost(usage.cost.amount, usage.cost.currency) : "cost n/a"}
       </span>
@@ -255,7 +255,7 @@ export function ThreadHeader({
               type="button"
               aria-pressed={panel === "memory"}
               onClick={() => onPanel("memory")}
-              title="What agent86 has learned: list, pin, and forget"
+              title="What Agent 86 has learned: list, pin, and forget"
               className={`rounded px-1.5 py-0.5 hover:bg-panel-2 hover:text-text ${panel === "memory" ? "bg-panel-2 text-text" : "text-muted"}`}
             >
               memory
@@ -278,8 +278,8 @@ export function ThreadHeader({
             onClick={() => setShowLogs((v) => !v)}
             title={
               logs.untrusted
-                ? "agent86 ignored some of this project's settings"
-                : "agent86's notes and connection events"
+                ? "Agent 86 ignored some of this project's settings"
+                : "Agent 86's notes and connection events"
             }
             className={`rounded px-1.5 py-0.5 hover:bg-panel-2 hover:text-text ${logs.lines.length ? "text-muted" : "text-muted/50"}`}
           >
@@ -300,7 +300,7 @@ export function ThreadHeader({
           className="mx-auto mb-1.5 flex max-w-3xl flex-wrap items-center gap-2 px-4 text-xs"
         >
           <span>
-            Start every new thread in <span className="font-mono">auto</span> mode? agent86 will
+            Start every new thread in <span className="font-mono">auto</span> mode? Agent 86 will
             edit files and run commands without asking.
           </span>
           <button
@@ -326,7 +326,7 @@ export function ThreadHeader({
         </div>
       )}
       {showLogs && (
-        <div className="relative mx-auto max-w-3xl px-4 pb-2" aria-label="agent86 logs">
+        <div className="relative mx-auto max-w-3xl px-4 pb-2" aria-label="Agent 86 logs">
           {logs.lines.length > 0 && <CopyLogs text={logs.lines.join("\n")} />}
           <LogLines lines={logs.lines} />
         </div>

@@ -232,7 +232,7 @@ describe("an interrupted turn (agent86 1.0.21)", () => {
   it("says so, marks the call cut off, and offers to continue with a short message", () => {
     const send = renderTranscript(interrupted());
     expect(screen.getByTestId("turn-interrupted")!.textContent).toContain(
-      "Interrupted: agent86 stopped partway through this turn (after 12s). The steps it finished are kept.",
+      "Interrupted: Agent 86 stopped partway through this turn (after 12s). The steps it finished are kept.",
     );
     expect(screen.getByTestId("tool-card")!.getAttribute("data-state")).toBe("interrupted");
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));

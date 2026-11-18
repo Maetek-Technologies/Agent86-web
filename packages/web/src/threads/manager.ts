@@ -179,11 +179,11 @@ export class ThreadHandle {
       .then(
         () => {
           localTitles.synced(sessionId, title);
-          this.log(`renamed the session in agent86: ${title}`);
+          this.log(`renamed the session in Agent 86: ${title}`);
         },
         (error: unknown) => {
           this.renameRefused = title;
-          this.log(`agent86 did not take the name (kept in this browser): ${message(error)}`);
+          this.log(`Agent 86 did not take the name (kept in this browser): ${message(error)}`);
         },
       )
       .finally(() => {
@@ -255,7 +255,7 @@ export class ThreadHandle {
       error: undefined,
       failedAt: undefined,
     });
-    if (fresh) this.log("restarting agent86 with this project's settings");
+    if (fresh) this.log("restarting Agent 86 with this project's settings");
     else this.log(this.attempt > 0 ? `reconnecting (attempt ${this.attempt})` : "connecting");
     // A newer attempt (reconnectNow, while this one waited for its socket) supersedes this one.
     const attempt = ++this.connecting;
@@ -277,11 +277,11 @@ export class ThreadHandle {
       for (const line of this.events) client.note(line);
       if (!client.compatibility.ok) {
         this.update({ client, phase: "failed", error: client.compatibility.problems.join(" ") });
-        this.log(`agent86 is not compatible: ${client.compatibility.problems.join(" ")}`);
+        this.log(`Agent 86 is not compatible: ${client.compatibility.problems.join(" ")}`);
         return;
       }
       this.update({ client });
-      this.log(`connected to agent86 ${client.init.agentInfo?.version ?? "(unknown version)"}`);
+      this.log(`connected to Agent 86 ${client.init.agentInfo?.version ?? "(unknown version)"}`);
       let session: AgentSession;
       if (meta.sessionId) {
         this.update({ phase: "loading" });
@@ -292,7 +292,7 @@ export class ThreadHandle {
           session = await client.newSession(meta.workspace);
         } catch (error) {
           this.update({ phase: "failed", error: message(error), failedAt: "starting" });
-          this.log(`agent86 could not start a session: ${message(error)}`);
+          this.log(`Agent 86 could not start a session: ${message(error)}`);
           return;
         }
         this.log(`started session ${session.id}`);
@@ -370,7 +370,7 @@ export class ThreadHandle {
     }
     if (interrupted && client.features.resume) {
       session.markInterrupted(startedAt);
-      this.log("agent86 stopped partway through a turn; the steps it finished are kept");
+      this.log("Agent 86 stopped partway through a turn; the steps it finished are kept");
     }
     return session;
   }

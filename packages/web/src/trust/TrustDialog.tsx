@@ -61,19 +61,19 @@ export function TrustDialog({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Review and trust this project's agent86 settings"
+      aria-label="Review and trust this project's Agent 86 settings"
       className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-16"
       onKeyDown={(e) => e.key === "Escape" && onCancel()}
     >
       <div className="w-full max-w-2xl rounded-lg border-2 border-warn bg-panel shadow-xl">
         <div className="space-y-2 border-b border-border px-4 py-3">
-          <h2 className="font-semibold">Trust this project's agent86 settings?</h2>
+          <h2 className="font-semibold">Trust this project's Agent 86 settings?</h2>
           <p className="text-sm">
             <strong className="text-warn">
               Trusting lets these settings run programs on your machine and change where your keys
               are sent.
             </strong>{" "}
-            agent86 ignores them until you trust the file. Only trust a file you have read and
+            Agent 86 ignores them until you trust the file. Only trust a file you have read and
             expect.
           </p>
           {untrusted && (
@@ -105,7 +105,7 @@ export function TrustDialog({
                 {showControls(config.contents)}
               </pre>
               <p className="text-xs text-muted">
-                Trust given here applies to threads agent86-web starts. agent86 at a terminal keeps
+                Trust given here applies to threads agent86-web starts. Agent 86 at a terminal keeps
                 its own record and will still ask. If the file changes, it needs trust again.
               </p>
             </>

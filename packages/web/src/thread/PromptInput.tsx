@@ -293,10 +293,10 @@ export function PromptInput({
             disabled
               ? "Disconnected"
               : busy
-                ? "agent86 is working… (type ahead)"
-                : "Message agent86 (/ for commands, @ for files)"
+                ? "Agent 86 is working… (type ahead)"
+                : "Message Agent 86 (/ for commands, @ for files)"
           }
-          aria-label="Message agent86"
+          aria-label="Message Agent 86"
           aria-autocomplete="list"
           aria-expanded={menuOpen}
           className="max-h-60 min-h-8 flex-1 resize-none bg-transparent py-1 outline-none placeholder:text-muted"

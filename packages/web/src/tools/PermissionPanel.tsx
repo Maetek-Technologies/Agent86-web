@@ -118,7 +118,7 @@ export function PermissionPanel({
       <div className="flex items-center gap-2 text-sm font-semibold text-warn">
         <span aria-hidden>⚠</span>
         <span>
-          agent86 wants to run <span className="font-mono">{name}</span>
+          Agent 86 wants to run <span className="font-mono">{name}</span>
           {summary && <span className="font-mono font-normal text-text"> {summary}</span>}
         </span>
       </div>

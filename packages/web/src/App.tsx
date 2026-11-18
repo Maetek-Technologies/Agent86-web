@@ -96,7 +96,7 @@ const RENAME_VERSION = "1.0.17";
 type ModeChoice = "default" | "ask" | "auto" | "deny";
 
 const MODE_CHOICES: { value: ModeChoice; label: string }[] = [
-  { value: "default", label: "agent86's default" },
+  { value: "default", label: "Agent 86's default" },
   { value: "ask", label: "ask: confirm each change" },
   { value: "auto", label: "auto: run without asking" },
   { value: "deny", label: "deny: refuse changes" },
@@ -149,7 +149,7 @@ function Settings({ port }: { port: number | null }) {
           className="mt-1 rounded border border-warn bg-warn/10 p-2 text-sm"
         >
           <p>
-            In <span className="font-mono">auto</span> mode, agent86 edits files and runs commands
+            In <span className="font-mono">auto</span> mode, Agent 86 edits files and runs commands
             without asking. Every new thread will start that way, in any browser.
           </p>
           <div className="mt-2 flex gap-2">
@@ -226,14 +226,14 @@ function Details({ info, onClose }: { info: BridgeInfo; onClose: () => void }) {
           </button>
         </div>
         <dl>
-          <Row label="agent86">{info.agent86.version}</Row>
-          <Row label="agent86 command">{info.agent86.command}</Row>
+          <Row label="Agent 86">{info.agent86.version}</Row>
+          <Row label="Agent 86 command">{info.agent86.command}</Row>
           <Row label="agent86-web">{info.bridge.version}</Row>
           <Row label="Allowed roots">{info.roots.join(", ")}</Row>
         </dl>
         {old && (
           <p className="mt-2 text-sm text-muted">
-            agent86 {RENAME_VERSION} or later keeps thread names you give here, and lists each
+            Agent 86 {RENAME_VERSION} or later keeps thread names you give here, and lists each
             workspace's own sessions. With {info.agent86.version}, names stay in this browser and
             sessions started at a terminal are listed under every workspace.
           </p>
@@ -249,7 +249,7 @@ function Details({ info, onClose }: { info: BridgeInfo; onClose: () => void }) {
             target="_blank"
             rel="noopener noreferrer"
           >
-            agent86
+            Agent 86
           </a>
           . © 2026 Maetek Technologies.
         </p>
@@ -273,7 +273,7 @@ function Header({
     <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-panel px-4">
       <img src="/agent86-logo.png" alt="" width={32} height={32} className="rounded-full" />
       <div className="font-mono text-lg font-bold tracking-widest">
-        AGENT86{" "}
+        AGENT 86{" "}
         <span className="font-sans text-sm font-normal tracking-normal text-muted">web</span>
       </div>
       <div className="ml-auto flex min-w-0 items-center gap-3 text-xs text-muted">
@@ -287,7 +287,7 @@ function Header({
         )}
         {info && (
           <button type="button" onClick={onShowDetails} className="font-mono hover:text-text">
-            agent86 {info.agent86.version}
+            Agent 86 {info.agent86.version}
             {(info.updates?.agent86 || info.updates?.agent86Web) && (
               <span className="ml-1.5 rounded bg-accent px-1 font-sans text-[10px] font-semibold text-bg">
                 update
@@ -342,7 +342,7 @@ function QuitDialog({
           Quit agent86-web?
         </h2>
         <p className="mt-2 text-sm text-muted">
-          This stops agent86-web and every agent86 it started. Your sessions are saved; run
+          This stops agent86-web and every Agent 86 it started. Your sessions are saved; run
           agent86-web again to come back to them.
         </p>
         {busy.length > 0 && (
@@ -429,7 +429,7 @@ function Home({
         height={96}
         className="mx-auto mb-4 rounded-full"
       />
-      <h1 className="text-xl font-semibold">What should agent86 work on?</h1>
+      <h1 className="text-xl font-semibold">What should Agent 86 work on?</h1>
       <p className="mt-2 text-sm text-muted">
         Start a thread in a workspace, or reopen a saved session from the list. Sessions started at
         a terminal are listed too.

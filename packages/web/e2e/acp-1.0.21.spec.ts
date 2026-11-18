@@ -14,8 +14,8 @@ import {
   type Bridge,
 } from "./bridge.ts";
 
-const box = (page: Page) => page.getByRole("textbox", { name: "Message agent86" });
-const replies = (page: Page) => page.getByLabel("agent86", { exact: true });
+const box = (page: Page) => page.getByRole("textbox", { name: "Message Agent 86" });
+const replies = (page: Page) => page.getByLabel("Agent 86", { exact: true });
 const inbox = (page: Page) => page.getByRole("complementary", { name: "Approval inbox" });
 const panel = (page: Page) => page.getByRole("group", { name: "Approval needed: write_file" });
 
@@ -108,7 +108,7 @@ test.describe("with the mock agent as agent86 1.0.21", () => {
     await openThread(page, bridge.url);
     await send(page, "crash after reading");
     const note = page.getByTestId("turn-interrupted");
-    await expect(note).toContainText("Interrupted: agent86 stopped partway through this turn");
+    await expect(note).toContainText("Interrupted: Agent 86 stopped partway through this turn");
     // The transcript the tab had is kept, not replayed: the read step, the partial answer.
     await expect(page.getByLabel("You", { exact: true })).toHaveText(["crash after reading"]);
     await expect(page.getByTestId("tool-card").first()).toHaveAttribute("data-state", "done");

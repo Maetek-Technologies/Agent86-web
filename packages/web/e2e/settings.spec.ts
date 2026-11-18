@@ -5,9 +5,9 @@ import { createServer } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
 import { mockAgent86, openThread, scriptedModel, startBridge, type Bridge } from "./bridge.ts";
 
-const box = (page: Page) => page.getByRole("textbox", { name: "Message agent86" });
+const box = (page: Page) => page.getByRole("textbox", { name: "Message Agent 86" });
 const visible = (page: Page) => page.getByRole("tabpanel").filter({ visible: true });
-const replies = (page: Page) => visible(page).getByLabel("agent86", { exact: true });
+const replies = (page: Page) => visible(page).getByLabel("Agent 86", { exact: true });
 const mode = (page: Page) => visible(page).getByRole("combobox", { name: "Approval mode" });
 
 async function send(page: Page, text: string) {

@@ -20,7 +20,7 @@ export function TrustBanner({
     <div role="region" aria-label="Project trust" className="border-b border-warn bg-warn/10">
       <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
         <span className="min-w-0 flex-1">
-          This project's agent86 settings (
+          This project's Agent 86 settings (
           <span className="font-mono">{logs.untrusted.keys.slice(0, 3).join(", ")}</span>
           {logs.untrusted.count > 3 ? ", …" : ""}) are being ignored until you trust them.
         </span>

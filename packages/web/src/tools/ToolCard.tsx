@@ -113,7 +113,7 @@ function SubagentSummary({ info, open }: { info: SubagentInfo; open: boolean }) 
         <span>
           {info.calls.length} model call{info.calls.length === 1 ? "" : "s"}
         </span>
-        <span title={info.priced ? undefined : "agent86 has no price for a model it used"}>
+        <span title={info.priced ? undefined : "Agent 86 has no price for a model it used"}>
           cost {formatUsd(spent)}
         </span>
       </div>

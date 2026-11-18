@@ -12,9 +12,9 @@ import {
   type Bridge,
 } from "./bridge.ts";
 
-const box = (page: Page) => page.getByRole("textbox", { name: "Message agent86" });
+const box = (page: Page) => page.getByRole("textbox", { name: "Message Agent 86" });
 const card = (page: Page) => page.getByTestId("tool-card").last();
-const replies = (page: Page) => page.getByLabel("agent86", { exact: true });
+const replies = (page: Page) => page.getByLabel("Agent 86", { exact: true });
 
 async function send(page: Page, text: string) {
   await box(page).fill(text);

@@ -214,7 +214,7 @@ export async function openThread(
     .getByRole("main")
     .getByRole("button", { name: /^New thread in / })
     .click();
-  await page.getByRole("textbox", { name: "Message agent86" }).waitFor();
+  await page.getByRole("textbox", { name: "Message Agent 86" }).waitFor();
 }
 
 /** Whether the real agent86 (AGENT86_BIN) is at least `version`. */
