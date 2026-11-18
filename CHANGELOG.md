@@ -2,6 +2,13 @@
 
 All notable changes to agent86-web. Release notes for each version are in [docs/releases/](docs/releases/).
 
+## 0.4.3 (2026-11-17)
+
+Easier-to-read `/tools`, `/skills` and `/agents`, and "Agent 86" in the UI. See [docs/releases/v0.4.3.md](docs/releases/v0.4.3.md).
+
+- A reply to `/tools`, `/skills` or `/agents` shows as a card: tools grouped into built-in and each MCP server's; skills with their descriptions and tools while active; sub-agents with where they come from. A reply in any other form shows as Markdown, as before.
+- The UI's prose, tab title, placeholders, headings, tooltips, logs and accessible labels say "Agent 86"; the header wordmark says "AGENT 86". Commands, package names and `.agent86/` paths are unchanged.
+
 ## 0.4.2 (2026-11-16)
 
 agent86 1.0.22's memory and 1.0.23's secrets over ACP, each detected from what agent86 advertises, so an older agent86 looks as before. See [docs/releases/v0.4.2.md](docs/releases/v0.4.2.md) and M10 in [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md#m10-agent86-web-042).
